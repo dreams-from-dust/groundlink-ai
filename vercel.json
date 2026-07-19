@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.ts"
+      "dest": "/api/index.mts"
     },
     {
       "handle": "filesystem"
@@ -14,12 +14,8 @@
     }
   ],
   "functions": {
-    "api/index.ts": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "config": {
-        "format": "esm"
-      }
+    "api/index.mts": {
+      "maxDuration": 60
     }
   }
 }
