@@ -1,0 +1,78 @@
+{
+  "firestore": {
+    "collections": {
+      "users": {
+        "description": "User profile records securely storing registration metadata.",
+        "documents": {
+          "{userId}": {
+            "fields": {
+              "uid": "string",
+              "email": "string",
+              "createdAt": "timestamp"
+            },
+            "collections": {
+              "documents": {
+                "description": "User-specific uploaded document files.",
+                "documents": {
+                  "{docId}": {
+                    "fields": {
+                      "id": "string",
+                      "name": "string",
+                      "chunkCount": "number",
+                      "uploadedAt": "timestamp",
+                      "size": "number"
+                    }
+                  }
+                }
+              },
+              "chunks": {
+                "description": "Text chunks with computed vector embeddings for the user's documents.",
+                "documents": {
+                  "{chunkId}": {
+                    "fields": {
+                      "id": "string",
+                      "docId": "string",
+                      "docTitle": "string",
+                      "text": "string",
+                      "embedding": "array",
+                      "localEmbedding": "array"
+                    }
+                  }
+                }
+              },
+              "chats": {
+                "description": "User chat sessions.",
+                "documents": {
+                  "{chatId}": {
+                    "fields": {
+                      "id": "string",
+                      "title": "string",
+                      "createdAt": "timestamp",
+                      "updatedAt": "timestamp"
+                    },
+                    "collections": {
+                      "messages": {
+                        "description": "Messages inside a chat session.",
+                        "documents": {
+                          "{messageId}": {
+                            "fields": {
+                              "id": "string",
+                              "role": "string",
+                              "content": "string",
+                              "timestamp": "timestamp",
+                              "retrieved": "array"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

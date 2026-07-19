@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vercel/
+
+# Environment files — NEVER commit secrets
+.env
+.env.local
+.env.production
+.env.development
+!.env.example
+
+# Firebase config — contains OAuth client IDs and project secrets
+firebase-applet-config.json
+
+# OS / Editor
+.DS_Store
+*.log
+coverage/
+
+# TypeScript cache
+*.tsbuildinfo
