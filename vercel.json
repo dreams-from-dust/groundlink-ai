@@ -16,7 +16,10 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
-      "memory": 1024
+      "memory": 1024,
+      "config": {
+        "format": "esm"
+      }
     }
   }
 }
