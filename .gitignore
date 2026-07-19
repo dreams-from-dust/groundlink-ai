@@ -23,3 +23,5 @@ coverage/
 
 # TypeScript cache
 *.tsbuildinfo
+
+gen-lang-client-*.json
