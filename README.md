@@ -1,6 +1,6 @@
 # GroundLink AI
 
-> A full-stack Retrieval-Augmented Generation (RAG) platform. Upload any document, ask questions, and get answers grounded strictly in your files — with clickable inline citations tracing every response back to its exact source.
+> A full-stack Retrieval-Augmented Generation (RAG) platform. Upload any document, ask questions, and get answers grounded strictly in your files with clickable inline citations tracing every response back to its exact source.
 
 **Live Demo:** [groundlink-ai.vercel.app](https://groundlink-ai.vercel.app)
 
@@ -36,16 +36,73 @@ Zero hallucination. Every claim is traceable.
 
 ## Tech Stack
 
-| Layer | Technology |
+### Frontend
+| Technology | Purpose |
 |---|---|
-| Frontend | React 19, Vite, TypeScript, Tailwind CSS v4 |
-| Animation | motion/react (AnimatePresence, spring transitions) |
-| Backend | Express.js (TypeScript) — Vercel Serverless Function |
-| Auth | Firebase Authentication (email + Google OAuth) |
-| Database | Firestore (per-user document + chunk storage) |
-| LLM / Embeddings | OpenRouter API (Gemini 2.5 Flash, GPT-4o-mini, Llama 3) |
-| Vector Search | In-memory cosine similarity (1536-dim, per-user cache) |
-| Deployment | Vercel (SPA static + serverless API) |
+| React 19 | UI framework |
+| TypeScript | Type-safe development |
+| Vite | Build tool and dev server |
+| Tailwind CSS v4 | Styling |
+| motion/react | Animations and transitions |
+| react-markdown + remark-gfm | Markdown rendering with GFM support |
+| lucide-react | Icon library |
+| Web Speech API | Voice input |
+
+### Backend
+| Technology | Purpose |
+|---|---|
+| Node.js | Runtime |
+| Express.js (TypeScript) | HTTP server and API routing |
+| Vercel Serverless Function | Production deployment target |
+| tsx | TypeScript execution locally without compile step |
+| dotenv | Environment variable loading |
+
+### AI and LLM
+| Technology | Purpose |
+|---|---|
+| OpenRouter API | Unified LLM and embedding gateway |
+| Gemini 2.5 Flash | Primary language model |
+| GPT-4o-mini | First fallback model |
+| Llama 3 8B Instruct | Free tier fallback model |
+| text-embedding-3-small | Vector embeddings (1536 dimensions) |
+| @google/genai | Google AI SDK |
+
+### RAG Pipeline
+| Component | Detail |
+|---|---|
+| Text chunker | Sentence-aware, 800 char chunks, 150 char overlap |
+| Batch embedding | 50 chunks per API request |
+| Vector search | Cosine similarity, custom implementation |
+| Retrieval | Top-5 chunks, minimum score threshold 0.25 |
+| Keyword fallback | Term frequency scoring when vector scores are low |
+| File extraction | PDF, DOCX, PPTX via OpenRouter multimodal; images via vision; video via transcription |
+
+### Auth and Database
+| Technology | Purpose |
+|---|---|
+| Firebase Authentication | Email/password and Google OAuth sign-in |
+| Firebase Admin SDK | Server-side JWT token verification |
+| Firestore | Per-user document, chunk, and chat persistence |
+| Collections | `/users/{uid}/chunks`, `/users/{uid}/chats`, `/users/{uid}/documents` |
+
+### Security
+| Layer | Implementation |
+|---|---|
+| Auth middleware | Firebase JWT verification on every API route |
+| Rate limiting | Custom sliding-window, in-memory, keyed by IP |
+| CORS | Allowlist driven by APP_URL environment variable |
+| Security headers | CSP, HSTS, X-Content-Type-Options, X-XSS-Protection, Referrer-Policy |
+| API key isolation | Server-side only, never exposed to browser bundle |
+| Data isolation | Firestore rules enforce per-user access |
+
+### DevOps and Tooling
+| Technology | Purpose |
+|---|---|
+| Vercel | Hosting (SPA static output + serverless API) |
+| GitHub | Version control and auto-deploy trigger |
+| concurrently | Runs API server and Vite in parallel locally |
+| esbuild | Bundling |
+| sharp | Image processing |
 
 ---
 
@@ -84,7 +141,7 @@ LLM call with grounded context → Response with [1][2] citations
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_USERNAME/groundlink-ai.git
+git clone https://github.com/dreams-from-dust/groundlink-ai.git
 cd groundlink-ai
 
 # 2. Install
@@ -103,7 +160,7 @@ npm run dev
 
 ## Security
 
-- API key is server-side only — never exposed to the browser
+- API key is server-side only, never exposed to the browser
 - Every API route requires Firebase JWT verification
 - Firestore rules enforce per-user data isolation
 - Sliding-window rate limiting on all write endpoints

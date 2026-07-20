@@ -3819,24 +3819,14 @@ The cloud intelligence service is currently experiencing exceptionally high dema
               }`}>
                 
                 <div className="flex items-center space-x-2 w-full">
-                  {/* File Upload Attachment Trigger */}
-                  <div className="flex items-center space-x-1 shrink-0">
-                    <button
-                      onClick={() => cameraFileInputRef.current?.click()}
-                      disabled={isLoading}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-black/10 dark:hover:bg-white/5 transition active:scale-90 disabled:opacity-20 cursor-pointer"
-                      title="Attach documents, photos, or video files"
-                    >
-                      <Paperclip className="w-4.5 h-4.5" />
-                    </button>
-                    <input
-                      ref={cameraFileInputRef}
-                      type="file"
-                      accept="image/*,video/*,.pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
-                      className="hidden"
-                      onChange={handleChatBarFileChange}
-                    />
-                  </div>
+                  {/* File Upload Attachment Trigger — removed: users should upload via sidebar */}
+                  <input
+                    ref={cameraFileInputRef}
+                    type="file"
+                    accept="image/*,video/*,.pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
+                    className="hidden"
+                    onChange={handleChatBarFileChange}
+                  />
 
                   <input
                     type="text"

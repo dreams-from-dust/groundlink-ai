@@ -627,10 +627,10 @@ app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res)
     }
     formattedMessages.push({ role: 'user', content: userContentParts.length === 1 ? promptTemplate : userContentParts });
 
-    let systemInstruction = `You are GroundLink AI, a professional, helpful grounded assistant. GroundLink AI is a secure, high-performance RAG Document Explorer that lets users upload files and query them with semantic search, citations, and multi-model fallbacks. Under NO circumstances include any emojis.`;
+    let systemInstruction = `You are GroundLink AI, a helpful, knowledgeable, and friendly AI assistant. You can answer any question the user asks — general knowledge, creative tasks, analysis, coding, math, advice, or anything else. You are also capable of answering questions grounded in the user's uploaded documents when they are available. Under NO circumstances include any emojis in your response.`;
     systemInstruction += topMatches.length > 0
-      ? ' Answer using loaded documents. Cite sources inline using ONLY individual brackets like [1] or [2]. NEVER write [1, 2] or [1,2] — always separate brackets. Place each citation immediately after the relevant sentence. Do NOT add a references list at the end.'
-      : ' No documents loaded. Do NOT use any inline citations. Answer directly from general knowledge.';
+      ? ' The user has documents loaded. Answer using the retrieved context and cite sources inline using ONLY individual brackets like [1] or [2]. NEVER write [1, 2] or [1,2] — always separate brackets. Place each citation immediately after the relevant sentence. Do NOT add a references list at the end.'
+      : ' No documents are loaded. Answer directly and helpfully from your general knowledge. Do NOT use any inline citations like [1] or [2].'
     if (customSystemInstruction?.trim()) systemInstruction += `\n\nUser Custom Instructions: "${customSystemInstruction.trim()}"`;
 
     // 5. Generate
