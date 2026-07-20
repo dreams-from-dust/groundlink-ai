@@ -2,6 +2,8 @@
 
 > A full-stack Retrieval-Augmented Generation (RAG) platform. Upload any document, ask questions, and get answers grounded strictly in your files — with clickable inline citations tracing every response back to its exact source.
 
+**Live Demo:** [groundlink-ai.vercel.app](https://groundlink-ai.vercel.app)
+
 ---
 
 ## What It Does
@@ -38,7 +40,7 @@ Zero hallucination. Every claim is traceable.
 |---|---|
 | Frontend | React 19, Vite, TypeScript, Tailwind CSS v4 |
 | Animation | motion/react (AnimatePresence, spring transitions) |
-| Backend | Express.js (TypeScript) → Vercel Serverless Function |
+| Backend | Express.js (TypeScript) — Vercel Serverless Function |
 | Auth | Firebase Authentication (email + Google OAuth) |
 | Database | Firestore (per-user document + chunk storage) |
 | LLM / Embeddings | OpenRouter API (Gemini 2.5 Flash, GPT-4o-mini, Llama 3) |
@@ -70,7 +72,7 @@ User asks a question
 Query Embedding → Cosine Similarity vs all user chunks
     │
     ▼
-Top-5 matches (score ≥ 0.25) → Keyword fallback if needed
+Top-5 matches (score >= 0.25) → Keyword fallback if needed
     │
     ▼
 LLM call with grounded context → Response with [1][2] citations
@@ -90,7 +92,7 @@ npm install
 
 # 3. Set up environment
 cp .env.example .env.local
-# Edit .env.local and add your OPENROUTER_API_KEY
+# Edit .env.local and add your keys
 
 # 4. Run
 npm run dev
@@ -103,10 +105,10 @@ npm run dev
 
 - API key is server-side only — never exposed to the browser
 - Every API route requires Firebase JWT verification
-- Firestore rules enforce per-user data isolation (`isOwner` pattern)
+- Firestore rules enforce per-user data isolation
 - Sliding-window rate limiting on all write endpoints
 - Custom security headers (CSP, HSTS, X-Content-Type-Options)
-- CORS allowlist driven by `APP_URL` env var
+- CORS allowlist driven by APP_URL env var
 
 ---
 

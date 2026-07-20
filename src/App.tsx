@@ -418,8 +418,8 @@ export default function App() {
   }, [customSystemInstruction]);
 
   // Layout & Sidebar States
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [rightActiveTab, setRightActiveTab] = useState<'grounding' | 'control'>('grounding');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -556,8 +556,16 @@ export default function App() {
         });
       });
       if (loaded.length > 0) {
-        setSessions(loaded);
-        setActiveSessionId(loaded[0].id);
+        // Always start with a fresh new chat on login — previous chats accessible in sidebar
+        const freshId = `chat-${Date.now()}`;
+        const freshSess: ChatSession = {
+          id: freshId,
+          title: 'New chat',
+          messages: [],
+          createdAt: new Date().toLocaleDateString()
+        };
+        setSessions([freshSess, ...loaded]);
+        setActiveSessionId(freshId);
       } else {
         initDefaultSession();
       }
@@ -3389,8 +3397,29 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
                 <div className="text-center space-y-2.5">
                   <h2 className="text-4xl font-extrabold tracking-tight select-none leading-none">
-                    <span className="text-cyan-500 dark:text-cyan-400">Welcome to </span>
-                    <span className="text-amber-500 dark:text-amber-400">GroundLink</span>
+                    {currentUser?.displayName || currentUser?.email ? (
+                      <>
+                        <span className="text-cyan-500 dark:text-cyan-400">
+                          {(() => {
+                            const h = new Date().getHours();
+                            if (h < 12) return 'Good morning,';
+                            if (h < 17) return 'Good afternoon,';
+                            if (h < 21) return 'Good evening,';
+                            return 'Good night,';
+                          })()}{' '}
+                        </span>
+                        <span className="text-amber-500 dark:text-amber-400">
+                          {currentUser.displayName
+                            ? currentUser.displayName.trim()
+                            : currentUser.email!.split('@')[0]}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-cyan-500 dark:text-cyan-400">Welcome to </span>
+                        <span className="text-amber-500 dark:text-amber-400">GroundLink</span>
+                      </>
+                    )}
                   </h2>
                   <p className="text-[18px] font-bold opacity-80">
                     How can I help you today?
