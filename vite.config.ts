@@ -15,7 +15,6 @@ export default defineConfig(() => {
       port: 5173,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-      // Proxy /api/* to local Express server during development
       proxy: {
         '/api': {
           target: 'http://localhost:3000',

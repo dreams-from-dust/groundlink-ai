@@ -39,6 +39,7 @@ import {
   Download,
   Paperclip,
   MessageSquare,
+  MessageCircle,
   Database,
   Video,
   Lock,
@@ -46,10 +47,11 @@ import {
   LogOut,
   KeyRound,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  X as XIcon
 } from 'lucide-react';
 import { auth, db as clientDb } from './firebase';
-import { onAuthStateChanged, User as FirebaseUser, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, sendEmailVerification, GoogleAuthProvider, signInWithPopup, updatePassword, EmailAuthProvider, linkWithCredential, ActionCodeSettings } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, updatePassword, EmailAuthProvider, linkWithCredential } from 'firebase/auth';
 import { collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, writeBatch } from 'firebase/firestore';
 
 interface ChunkMatch {
@@ -519,6 +521,14 @@ export default function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraFileInputRef = useRef<HTMLInputElement>(null);
+  const chatTextAreaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (chatTextAreaRef.current) {
+      chatTextAreaRef.current.style.height = 'auto';
+      chatTextAreaRef.current.style.height = `${Math.min(chatTextAreaRef.current.scrollHeight, 160)}px`;
+    }
+  }, [inputText]);
 
   // --- FIREBASE HELPER METHODS ---
   const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
@@ -556,16 +566,8 @@ export default function App() {
         });
       });
       if (loaded.length > 0) {
-        // Always start with a fresh new chat on login — previous chats accessible in sidebar
-        const freshId = `chat-${Date.now()}`;
-        const freshSess: ChatSession = {
-          id: freshId,
-          title: 'New chat',
-          messages: [],
-          createdAt: new Date().toLocaleDateString()
-        };
-        setSessions([freshSess, ...loaded]);
-        setActiveSessionId(freshId);
+        setSessions(loaded);
+        setActiveSessionId(loaded[0].id);
       } else {
         initDefaultSession();
       }
@@ -1110,38 +1112,40 @@ The cloud intelligence service is currently experiencing exceptionally high dema
         throw new Error('Server-side clear failed');
       }
 
-      // 3. Background client-side Firestore cleanup without blocking the UI
+      // 3. Client-side Firestore cleanup completed before fetchStats
       if (auth.currentUser) {
         const uid = auth.currentUser.uid;
-        getDocs(collection(clientDb, 'users', uid, 'chunks'))
-          .then(chunksSnap => {
-            const chunkChunks = [];
-            for (let i = 0; i < chunksSnap.docs.length; i += 200) {
-              chunkChunks.push(chunksSnap.docs.slice(i, i + 200));
-            }
-            return Promise.all(chunkChunks.map(async batchDocs => {
-              const batch = writeBatch(clientDb);
-              batchDocs.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }));
-          }).then(() => {
-            console.log("[Clear] Background client-side chunks clean up complete.");
-          }).catch(err => console.warn("Background client-side chunks clean up failed:", err));
+        try {
+          const chunksSnap = await getDocs(collection(clientDb, 'users', uid, 'chunks'));
+          const chunkChunks = [];
+          for (let i = 0; i < chunksSnap.docs.length; i += 200) {
+            chunkChunks.push(chunksSnap.docs.slice(i, i + 200));
+          }
+          await Promise.all(chunkChunks.map(async batchDocs => {
+            const batch = writeBatch(clientDb);
+            batchDocs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }));
+          console.log("[Clear] Client-side chunks clean up complete.");
+        } catch (err) {
+          console.warn("Client-side chunks clean up failed:", err);
+        }
 
-        getDocs(collection(clientDb, 'users', uid, 'documents'))
-          .then(docsSnap => {
-            const docChunks = [];
-            for (let i = 0; i < docsSnap.docs.length; i += 200) {
-              docChunks.push(docsSnap.docs.slice(i, i + 200));
-            }
-            return Promise.all(docChunks.map(async batchDocs => {
-              const batch = writeBatch(clientDb);
-              batchDocs.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }));
-          }).then(() => {
-            console.log("[Clear] Background client-side documents clean up complete.");
-          }).catch(err => console.warn("Background client-side docs clean up failed:", err));
+        try {
+          const docsSnap = await getDocs(collection(clientDb, 'users', uid, 'documents'));
+          const docChunks = [];
+          for (let i = 0; i < docsSnap.docs.length; i += 200) {
+            docChunks.push(docsSnap.docs.slice(i, i + 200));
+          }
+          await Promise.all(docChunks.map(async batchDocs => {
+            const batch = writeBatch(clientDb);
+            batchDocs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }));
+          console.log("[Clear] Client-side documents clean up complete.");
+        } catch (err) {
+          console.warn("Client-side docs clean up failed:", err);
+        }
       }
 
       setSessions([]);
@@ -1197,40 +1201,42 @@ The cloud intelligence service is currently experiencing exceptionally high dema
         throw new Error(data.error || 'Server-side delete failed');
       }
 
-      // 3. Background client-side Firestore cleanup without blocking the UI
+      // 3. Client-side Firestore cleanup completed before fetchStats
       if (auth.currentUser) {
         const uid = auth.currentUser.uid;
-        getDocs(collection(clientDb, 'users', uid, 'chunks'))
-          .then(chunksSnap => {
-            const chunksToDelete = chunksSnap.docs.filter(d => d.data().docTitle === docName);
-            const chunkBatches = [];
-            for (let i = 0; i < chunksToDelete.length; i += 200) {
-              chunkBatches.push(chunksToDelete.slice(i, i + 200));
-            }
-            return Promise.all(chunkBatches.map(async batchDocs => {
-              const batch = writeBatch(clientDb);
-              batchDocs.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }));
-          }).then(() => {
-            console.log(`[Delete] Background chunks clean up for "${docName}" complete.`);
-          }).catch(err => console.warn("Background client-side chunks clean up failed:", err));
+        try {
+          const chunksSnap = await getDocs(collection(clientDb, 'users', uid, 'chunks'));
+          const chunksToDelete = chunksSnap.docs.filter(d => d.data().docTitle === docName);
+          const chunkBatches = [];
+          for (let i = 0; i < chunksToDelete.length; i += 200) {
+            chunkBatches.push(chunksToDelete.slice(i, i + 200));
+          }
+          await Promise.all(chunkBatches.map(async batchDocs => {
+            const batch = writeBatch(clientDb);
+            batchDocs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }));
+          console.log(`[Delete] Chunks clean up for "${docName}" complete.`);
+        } catch (err) {
+          console.warn("Client-side chunks clean up failed:", err);
+        }
 
-        getDocs(collection(clientDb, 'users', uid, 'documents'))
-          .then(docsSnap => {
-            const docsToDelete = docsSnap.docs.filter(d => d.data().name === docName);
-            const docBatches = [];
-            for (let i = 0; i < docsToDelete.length; i += 200) {
-              docBatches.push(docsToDelete.slice(i, i + 200));
-            }
-            return Promise.all(docBatches.map(async batchDocs => {
-              const batch = writeBatch(clientDb);
-              batchDocs.forEach(d => batch.delete(d.ref));
-              await batch.commit();
-            }));
-          }).then(() => {
-            console.log(`[Delete] Background documents clean up for "${docName}" complete.`);
-          }).catch(err => console.warn("Background client-side docs clean up failed:", err));
+        try {
+          const docsSnap = await getDocs(collection(clientDb, 'users', uid, 'documents'));
+          const docsToDelete = docsSnap.docs.filter(d => d.data().name === docName);
+          const docBatches = [];
+          for (let i = 0; i < docsToDelete.length; i += 200) {
+            docBatches.push(docsToDelete.slice(i, i + 200));
+          }
+          await Promise.all(docBatches.map(async batchDocs => {
+            const batch = writeBatch(clientDb);
+            batchDocs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }));
+          console.log(`[Delete] Documents clean up for "${docName}" complete.`);
+        } catch (err) {
+          console.warn("Client-side docs clean up failed:", err);
+        }
       }
 
       await fetchStats();
@@ -1264,25 +1270,22 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       });
       const data = await res.json();
       if (res.ok) {
-        // Safe Client-side save backup to bypass server-side Firestore write permissions issues
+        // CLEAR all existing client Firestore chunks first, then write sample corpus
         if (auth.currentUser && data.chunks && data.docMetas) {
           const uid = auth.currentUser.uid;
           try {
-            // Save chunks
+            const existingChunks = await getDocs(collection(clientDb, 'users', uid, 'chunks'));
+            for (const c of existingChunks.docs) await deleteDoc(c.ref);
+            const existingDocs = await getDocs(collection(clientDb, 'users', uid, 'documents'));
+            for (const d of existingDocs.docs) await deleteDoc(d.ref);
             for (const chunk of data.chunks) {
-              const chunkRef = doc(clientDb, 'users', uid, 'chunks', chunk.id);
-              await setDoc(chunkRef, chunk);
+              await setDoc(doc(clientDb, 'users', uid, 'chunks', chunk.id), chunk);
             }
-            // Save docMetas
             for (const docMeta of data.docMetas) {
-              const docRef = doc(clientDb, 'users', uid, 'documents', docMeta.id);
-              await setDoc(docRef, {
-                ...docMeta,
-                uploadedAt: new Date()
-              });
+              await setDoc(doc(clientDb, 'users', uid, 'documents', docMeta.id), { ...docMeta, uploadedAt: new Date() });
             }
           } catch (dbErr: any) {
-            console.warn("Client-side database synchronization fallback failed: ", dbErr.message || dbErr);
+            console.warn('Client-side sample sync failed:', dbErr.message || dbErr);
           }
         }
 
@@ -1318,9 +1321,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       const file = filesList[i];
       const name = file.name;
 
-      // Front-end File Size Validation (80MB limit to prevent browser memory exhaust and network failures)
-      if (file.size > 80 * 1024 * 1024) {
-        showToastNotification(`"${name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). The maximum supported file size is 80MB.`);
+      // Front-end File Size Validation (50MB limit to prevent browser memory exhaust and network failures)
+      if (file.size > 50 * 1024 * 1024) {
+        showToastNotification(`"${name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). The maximum supported file size is 50MB.`);
         continue;
       }
 
@@ -1368,9 +1371,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       for (let i = 0; i < filesList.length; i++) {
         const file = filesList[i];
 
-        // Front-end File Size Validation (80MB limit)
-        if (file.size > 80 * 1024 * 1024) {
-          throw new Error(`The file "${file.name}" exceeds the maximum limit of 80MB (it is ${(file.size / (1024 * 1024)).toFixed(1)}MB). Please compress the file or upload a smaller clip.`);
+        // Front-end File Size Validation (50MB limit)
+        if (file.size > 50 * 1024 * 1024) {
+          throw new Error(`The file "${file.name}" exceeds the maximum limit of 50MB (it is ${(file.size / (1024 * 1024)).toFixed(1)}MB). Please compress the file or upload a smaller clip.`);
         }
 
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
@@ -1409,25 +1412,20 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
       const data = await res.json();
       if (res.ok) {
-        // Safe Client-side save backup to bypass server-side Firestore write permissions issues
+        // Client-side Firestore sync — APPEND only, never delete existing chunks
         if (auth.currentUser && data.chunks && data.docMetas) {
           const uid = auth.currentUser.uid;
           try {
-            // Save chunks
             for (const chunk of data.chunks) {
               const chunkRef = doc(clientDb, 'users', uid, 'chunks', chunk.id);
               await setDoc(chunkRef, chunk);
             }
-            // Save docMetas
             for (const docMeta of data.docMetas) {
               const docRef = doc(clientDb, 'users', uid, 'documents', docMeta.id);
-              await setDoc(docRef, {
-                ...docMeta,
-                uploadedAt: new Date()
-              });
+              await setDoc(docRef, { ...docMeta, uploadedAt: new Date() });
             }
           } catch (dbErr: any) {
-            console.warn("Client-side database synchronization fallback failed: ", dbErr.message || dbErr);
+            console.warn('Client-side upload sync failed:', dbErr.message || dbErr);
           }
         }
 
@@ -1904,12 +1902,11 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       return ` \`${cleanEq}\` `;
     });
 
-    // 3. Convert plaintext citations [1], [2], [1, 2], [1,2,3] to interactive markdown links
-    // Step A: expand multi-number brackets [1, 2] -> [1][2]
-    processed = processed.replace(/\[(\d+(?:,\s*\d+)+)\]/g, (_, nums: string) => {
-      return nums.split(',').map((n: string) => `[${n.trim()}]`).join('');
-    });
-    // Step B: convert each single [N] to a clickable markdown link
+    // 3. Expand multi-citations [2, 4] or [1,2,3] into individual [2][4] [1][2][3]
+    processed = processed.replace(/\[(\d+(?:,\s*\d+)+)\]/g, (_: string, nums: string) =>
+      nums.split(',').map((n: string) => `[${n.trim()}]`).join('')
+    );
+    // 4. Convert plaintext citations [1], [2] to interactive markdown links
     processed = processed.replace(/\[(\d+)\]/g, '[$1](citation-$1)');
 
     return processed;
@@ -1921,132 +1918,135 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin flex flex-col font-sans">
         {/* Active click inspector */}
         {selectedMatch ? (
-          <div className={`p-4 rounded-xl space-y-2.5 border transition duration-150 ${
+          <div className={`p-4 rounded-xl space-y-3.5 border transition duration-150 ${
             theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-slate-50 border-slate-200/80 shadow-xs'
           }`}>
-            <div className="flex justify-between items-center">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450 dark:text-slate-500">Active Passage</span>
+            <div className="flex justify-between items-center pb-1 border-b border-slate-200/50 dark:border-zinc-850/50">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-500">Active Passage Inspection</span>
               <button
                 onClick={() => setSelectedMatch(null)}
-                className="text-[11px] font-bold hover:underline cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="text-[11px] font-semibold text-slate-500 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 cursor-pointer flex items-center space-x-1 px-2 py-0.5 rounded-md hover:bg-slate-200/50 dark:hover:bg-zinc-800 transition"
               >
-                Close
+                <XIcon className="w-3.5 h-3.5" />
+                <span>Close</span>
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Source: <span className="text-slate-700 dark:text-slate-300 font-semibold">{selectedMatch.docTitle}</span></p>
-            <div className={`text-xs leading-relaxed p-3 rounded-lg border ${
-              theme === 'dark' ? 'bg-black/40 border-white/5 text-slate-300 font-normal' : 'bg-white border-slate-200/60 text-slate-700 font-normal'
-            }`}>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium font-sans">Source Document: <span className="text-slate-700 dark:text-slate-300 font-bold">{selectedMatch.docTitle}</span></p>
+            <div className={`text-xs leading-relaxed p-3.5 rounded-xl border font-sans ${
+              theme === 'dark' ? 'bg-black/50 border-white/5 text-slate-300 font-normal' : 'bg-white border-slate-200/80 text-slate-700 font-normal shadow-xs'
+            }`} style={{ whiteSpace: 'pre-wrap' }}>
               "{selectedMatch.text}"
             </div>
             <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1">
-              <span>Match Accuracy:</span>
-              <span className="text-slate-600 dark:text-slate-300 font-medium">{(selectedMatch.score * 100).toFixed(0)}% Match</span>
+              <span>Retrieval Correlation Accuracy:</span>
+              <span className="text-emerald-500 dark:text-emerald-400 font-bold bg-emerald-500/10 dark:bg-emerald-500/5 px-2 py-0.5 rounded">{(selectedMatch.score * 100).toFixed(0)}% Match</span>
             </div>
           </div>
         ) : (
-          <div className={`p-4 rounded-xl border text-[11px] leading-relaxed transition ${
-            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-850/60 text-slate-400' : 'bg-slate-50 border-slate-200/60 text-slate-600'
-          }`}>
-            <p className="font-bold text-slate-500 dark:text-slate-450 text-[11px] uppercase tracking-wider mb-1.5">Interactive Verification</p>
-            <p className="opacity-80">Click on any numeric citation indicators <span className="text-slate-600 dark:text-slate-350 font-medium">[1]</span> within the chat replies. The exact reference passage will render here in real-time.</p>
-          </div>
-        )}
-
-        {/* Searchable local documents list */}
-        <div className="space-y-4 pt-2">
-          {/* Live Vector Correlation Spectrum */}
-          <div className={`p-4 rounded-xl border transition ${
-            theme === 'dark' ? 'bg-zinc-900/40 border-zinc-850/60' : 'bg-slate-50 border-slate-200/60'
-          }`}>
-            <div className="flex items-center space-x-2 mb-3">
-              {/* Static steady slate dot */}
-              <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-zinc-500 shrink-0"></span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450 dark:text-slate-500 block">Live Search Relevance</span>
+          <>
+            <div className={`p-4 rounded-xl border text-[11px] leading-relaxed transition ${
+              theme === 'dark' ? 'bg-zinc-900/60 border-zinc-850/60 text-slate-400' : 'bg-slate-50 border-slate-200/60 text-slate-600'
+            }`}>
+              <p className="font-bold text-slate-500 dark:text-slate-450 text-[11px] uppercase tracking-wider mb-1.5">Interactive Verification</p>
+              <p className="opacity-80">Click on any numeric citation indicators <span className="text-slate-600 dark:text-slate-350 font-medium">[1]</span> within the chat replies. The exact reference passage will render here in real-time.</p>
             </div>
-            
-            <div className="h-20 relative flex items-end justify-between px-2 pt-2 border-b border-dashed border-slate-250 dark:border-zinc-850">
-              {/* Visualized cosine correlation levels */}
-              {[88, 79, 94, 65, 87, 72, 91, 85].map((val, idx) => (
-                <div key={idx} className="flex flex-col items-center w-full group/bar relative">
-                  <div className="absolute -top-5 opacity-0 group-hover/bar:opacity-100 transition duration-150 text-[8px] bg-slate-950 text-white px-1.5 rounded -translate-y-1 block pointer-events-none text-slate-300 font-normal z-10 shadow-md">
-                    {val}%
-                  </div>
-                  <div
-                    className={`w-2 h-full rounded-t-xs transition-all duration-300 hover:brightness-110 ${
-                      val > 85
-                        ? 'bg-slate-400 dark:bg-zinc-500'
-                        : 'bg-slate-300 dark:bg-zinc-650'
-                    }`}
-                    style={{ height: `${val}%` }}
-                  />
-                  <span className={`text-[8px] font-mono mt-1 ${
-                    theme === 'dark' ? 'text-slate-600' : 'text-slate-400'
-                  }`}>Ref{idx+1}</span>
-                </div>
-              ))}
-            </div>
-            
-            <p className="text-[10px] leading-normal opacity-75 mt-2 text-left text-slate-500 dark:text-slate-400">
-              Displays how closely loaded document segments match your active query.
-            </p>
-          </div>
-        </div>
 
-        <div className="space-y-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450 dark:text-slate-500 block">Search Loaded Files</span>
-          
-          {/* Search input */}
-          <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg border text-xs transition duration-200 focus-within:ring-1 focus-within:ring-amber-500/20 focus-within:border-amber-400 ${
-            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-850/60' : 'bg-white border-slate-200'
-          }`}>
-            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <input
-              type="text"
-              placeholder="Search by file name..."
-              value={docSearchQuery}
-              onChange={(e) => setDocSearchQuery(e.target.value)}
-              className="bg-transparent border-none ring-0 outline-none text-xs w-full text-slate-800 dark:text-slate-100 font-medium"
-            />
-            {docSearchQuery && (
-              <button onClick={() => setDocSearchQuery('')} className="text-slate-400 hover:text-slate-600 cursor-pointer">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Search results */}
-          <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-            {filteredDocuments.length > 0 ? (
-              filteredDocuments.map((doc, idx) => (
-                <div
-                  key={idx}
-                  className={`flex justify-between items-center text-xs p-2.5 border rounded-xl transition duration-150 ${
-                    theme === 'dark'
-                      ? 'bg-zinc-900/30 border-zinc-850/50 hover:bg-zinc-900/60 hover:border-zinc-800'
-                      : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-                  }`}
-                >
-                  <span className="truncate text-slate-750 dark:text-slate-300 font-medium font-sans text-xs flex-1 text-left" title={doc.title}>{doc.title}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteDocumentByName(doc.title);
-                    }}
-                    className="text-red-400 hover:text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg transition cursor-pointer shrink-0 ml-2"
-                    title="Delete document file"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+            {/* Searchable local documents list */}
+            <div className="space-y-4 pt-2">
+              {/* Live Vector Correlation Spectrum */}
+              <div className={`p-4 rounded-xl border transition ${
+                theme === 'dark' ? 'bg-zinc-900/40 border-zinc-850/60' : 'bg-slate-50 border-slate-200/60'
+              }`}>
+                <div className="flex items-center space-x-2 mb-3">
+                  {/* Static steady slate dot */}
+                  <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-zinc-500 shrink-0"></span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450 dark:text-slate-500 block">Live Search Relevance</span>
                 </div>
-              ))
-            ) : (
-              <div className="text-center py-4 text-xs opacity-40">
-                No matching document files found.
+                
+                <div className="h-20 relative flex items-end justify-between px-2 pt-2 border-b border-dashed border-slate-250 dark:border-zinc-850">
+                  {/* Visualized cosine correlation levels */}
+                  {[88, 79, 94, 65, 87, 72, 91, 85].map((val, idx) => (
+                    <div key={idx} className="flex flex-col items-center w-full group/bar relative">
+                      <div className="absolute -top-5 opacity-0 group-hover/bar:opacity-100 transition duration-150 text-[8px] bg-slate-950 text-white px-1.5 rounded -translate-y-1 block pointer-events-none text-slate-300 font-normal z-10 shadow-md">
+                        {val}%
+                      </div>
+                      <div
+                        className={`w-2 h-full rounded-t-xs transition-all duration-300 hover:brightness-110 ${
+                          val > 85
+                            ? 'bg-slate-400 dark:bg-zinc-500'
+                            : 'bg-slate-300 dark:bg-zinc-650'
+                        }`}
+                        style={{ height: `${val}%` }}
+                      />
+                      <span className={`text-[8px] font-mono mt-1 ${
+                        theme === 'dark' ? 'text-slate-600' : 'text-slate-400'
+                      }`}>Ref{idx+1}</span>
+                    </div>
+                  ))}
+                </div>
+                
+                <p className="text-[10px] leading-normal opacity-75 mt-2 text-left text-slate-500 dark:text-slate-400">
+                  Displays how closely loaded document segments match your active query.
+                </p>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-450 dark:text-slate-500 block">Search Loaded Files</span>
+              
+              {/* Search input */}
+              <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg border text-xs transition duration-200 focus-within:ring-1 focus-within:ring-amber-500/20 focus-within:border-amber-400 ${
+                theme === 'dark' ? 'bg-zinc-900/60 border-zinc-850/60' : 'bg-white border-slate-200'
+              }`}>
+                <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search by file name..."
+                  value={docSearchQuery}
+                  onChange={(e) => setDocSearchQuery(e.target.value)}
+                  className="bg-transparent border-none ring-0 outline-none text-xs w-full text-slate-800 dark:text-slate-100 font-medium"
+                />
+                {docSearchQuery && (
+                  <button onClick={() => setDocSearchQuery('')} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <XIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Search results */}
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {filteredDocuments.length > 0 ? (
+                  filteredDocuments.map((doc, idx) => (
+                    <div
+                      key={doc.title}
+                      className={`flex justify-between items-center text-xs p-2.5 border rounded-xl transition duration-150 ${
+                        theme === 'dark'
+                          ? 'bg-zinc-900/30 border-zinc-850/50 hover:bg-zinc-900/60 hover:border-zinc-800'
+                          : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="truncate text-slate-750 dark:text-slate-300 font-medium font-sans text-xs flex-1 text-left" title={doc.title}>{doc.title}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDocumentByName(doc.title);
+                        }}
+                        className="text-red-400 hover:text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg transition cursor-pointer shrink-0 ml-2"
+                        title="Delete document file"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-xs opacity-40">
+                    No matching document files found.
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   };
@@ -2142,13 +2142,16 @@ The cloud intelligence service is currently experiencing exceptionally high dema
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,video/*,.pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
+            accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
             className="hidden"
             onChange={(e) => {
-              if (e.target.files) uploadLocalFile(e.target.files);
+              if (e.target.files && e.target.files.length > 0) {
+                uploadLocalFile(e.target.files);
+                e.target.value = '';
+              }
             }}
           />
-          <p className="text-[9.5px] opacity-50 text-center select-none pt-1 font-medium">Supports PPT, PDF, DOC, Video, Image, Text & Markdown</p>
+          <p className="text-[9.5px] opacity-50 text-center select-none pt-1 font-medium">Supports PDF, DOCX, PPTX, TXT, MD</p>
         </div>
 
         {/* Ingestion progress feedback log */}
@@ -2203,18 +2206,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
         if (authDisplayName.trim()) {
           await updateProfile(cred.user, { displayName: authDisplayName.trim() });
         }
-        // Send branded email verification via GroundLink AI
-        const verificationActionSettings: ActionCodeSettings = {
-          url: `${window.location.origin}/?verified=true`,
-          handleCodeInApp: false,
-        };
-        try {
-          await sendEmailVerification(cred.user, verificationActionSettings);
-          showToastNotification("Account created! Check your email to verify your GroundLink AI account.");
-        } catch (verErr) {
-          // Verification email failed silently — account still created
-          showToastNotification("Account registered successfully! Welcome to GroundLink AI.");
-        }
+        showToastNotification("Account registered successfully! Welcome.");
         setAuthEmail('');
         setAuthPassword('');
         setAuthConfirmPassword('');
@@ -2270,13 +2262,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
     }
     try {
       setAuthLoading(true);
-      const resetActionSettings: ActionCodeSettings = {
-        url: `${window.location.origin}/?passwordReset=true`,
-        handleCodeInApp: false,
-      };
-      await sendPasswordResetEmail(auth, authEmail, resetActionSettings);
+      await sendPasswordResetEmail(auth, authEmail);
       setResetSent(true);
-      showToastNotification("Password recovery link dispatched. Check your inbox.");
+      showToastNotification("Password recovery link dispatched.");
     } catch (err: any) {
       console.error("Reset error:", err);
       let msg = err.message;
@@ -2439,11 +2427,11 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="max-w-7xl mx-auto px-6 py-10 lg:py-16 relative z-10 flex flex-col lg:flex-row gap-12 lg:gap-16 items-center w-full flex-grow justify-start lg:justify-center animate-fade-in my-auto"
+            className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 lg:py-16 relative z-10 flex flex-col lg:flex-row gap-8 sm:gap-12 lg:gap-16 items-center w-full flex-grow justify-start lg:justify-center animate-fade-in my-auto"
           >
             {/* Left side: Hero Text & CTAs */}
             <div className="flex-1 text-left flex flex-col justify-center space-y-6 lg:max-w-xl">
-              <h2 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
                 Search, Chat & Verify with{' '}
                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 via-indigo-500 to-amber-500 dark:from-cyan-400 dark:via-indigo-400 dark:to-amber-400">
                   Grounded Truth
@@ -2455,7 +2443,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
               </p>
 
               {/* Premium Interactive CTA Buttons */}
-              <div className="flex flex-col sm:flex-row gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-3 sm:pt-4">
                 <button
                   onClick={() => {
                     setIsSignUpMode(true);
@@ -2544,9 +2532,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="max-w-md w-full mx-auto px-4 py-4 md:py-6 relative z-10 flex-grow flex flex-col items-center justify-center"
+            className="max-w-md w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 relative z-10 flex-grow flex flex-col items-center justify-center"
           >
-            <div className={`border rounded-3xl shadow-2xl p-5 sm:p-7 w-full ${
+            <div className={`border rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-7 w-full ${
               theme === 'dark' ? 'bg-[#111216] border-zinc-800' : 'bg-white border-slate-200'
             }`}>
               
@@ -2868,12 +2856,25 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       </div>
 
       {/* Minimal clean header */}
-      <header className={`relative z-20 px-5 py-3.5 border-b flex justify-between items-center transition-colors ${
+      <header className={`relative z-20 px-2 sm:px-5 py-2 sm:py-3 border-b flex justify-between items-center transition-colors min-h-0 ${
         theme === 'dark' ? 'bg-[#171717] border-zinc-800' : 'bg-[#ffffff] border-slate-200/60 shadow-xs'
       }`}>
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+          {/* Sidebar toggle — always visible, compact on mobile */}
+          <button
+            onClick={() => setLeftSidebarOpen(prev => !prev)}
+            className={`p-2 rounded-lg transition active:scale-95 shrink-0 ${
+              leftSidebarOpen
+                ? theme === 'dark' ? 'text-amber-400 bg-amber-500/10' : 'text-amber-600 bg-amber-50'
+                : theme === 'dark' ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5' : 'text-slate-500 hover:text-slate-700 hover:bg-black/5'
+            }`}
+            title="Toggle chat history"
+          >
+            <Menu className="w-4.5 h-4.5" />
+          </button>
         <div 
           onClick={() => setActiveView('chat')}
-          className="flex items-center space-x-4 group/header font-sans cursor-pointer"
+          className="flex items-center space-x-2 sm:space-x-3 group/header font-sans cursor-pointer min-w-0"
           title="Back to Chat"
         >
           <div className="relative">
@@ -2885,16 +2886,17 @@ The cloud intelligence service is currently experiencing exceptionally high dema
             <h1 className="text-lg md:text-xl font-black tracking-tight select-none bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 via-indigo-500 to-amber-500 dark:from-cyan-400 dark:via-indigo-400 dark:to-amber-400">
               GroundLink
             </h1>
-            <p className="text-[11px] font-medium opacity-50 leading-none mt-1 text-slate-500 dark:text-slate-400">Your Document Assistant</p>
+            <p className="hidden sm:block text-[10px] sm:text-[11px] font-medium opacity-50 leading-none mt-0.5 sm:mt-1 text-slate-500 dark:text-slate-400">Your Document Assistant</p>
           </div>
+        </div>
         </div>
 
         {/* Action Toggles for Expandable Sidebars */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-0.5 sm:space-x-2">
           {/* Theme switcher */}
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className={`p-2 rounded-lg transition active:scale-95 flex items-center justify-center ${
+            className={`hidden xs:flex p-2 rounded-lg transition active:scale-95 items-center justify-center ${
               theme === 'dark' ? 'hover:bg-white/5 text-amber-400' : 'hover:bg-black/5 text-slate-600'
             }`}
             title="Switch theme"
@@ -2916,7 +2918,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           </button>
 
           {/* User Profile Badge & Logout */}
-          <div className="flex items-center space-x-2 border-l border-slate-200 dark:border-zinc-800 pl-3.5 ml-1.5">
+          <div className="flex items-center space-x-1.5 border-l border-slate-200 dark:border-zinc-800 pl-2 sm:pl-3.5 ml-0.5 sm:ml-1.5">
             <button
               onClick={() => {
                 setActiveView(activeView === 'profile' ? 'chat' : 'profile');
@@ -2924,7 +2926,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 setProfileSuccessMessage(null);
                 setProfileErrorMessage(null);
               }}
-              className={`flex items-center space-x-2.5 py-1 px-2.5 rounded-xl transition active:scale-[0.98] text-left cursor-pointer ${
+              className={`hidden xs:flex items-center space-x-2.5 py-1 px-2.5 rounded-xl transition active:scale-[0.98] text-left cursor-pointer ${
                 activeView === 'profile'
                   ? theme === 'dark' ? 'bg-white/10' : 'bg-black/10'
                   : theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'
@@ -2943,7 +2945,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                   {getUserInitials()}
                 </div>
               )}
-              <span className="hidden sm:inline text-xs font-bold text-slate-700 dark:text-slate-200 font-sans leading-none">
+              <span className="hidden md:inline text-xs font-bold text-slate-700 dark:text-slate-200 font-sans leading-none">
                 {currentUser?.displayName || 'Secure User'}
               </span>
             </button>
@@ -2955,12 +2957,12 @@ The cloud intelligence service is currently experiencing exceptionally high dema
       <div className="flex-1 flex overflow-hidden relative z-10">
         {/* Dimmed click-outside backdrop overlay to close sidebars easily (mobile only) */}
         <AnimatePresence>
-          {leftSidebarOpen && activeView === 'chat' && isMobileScreen && (
+          {leftSidebarOpen && activeView === 'chat' && (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="lg:hidden absolute inset-0 bg-black/30 backdrop-blur-xs z-30 transition-opacity animate-fade-in"
+              className="absolute inset-0 bg-black/40 z-30 transition-opacity"
               onClick={() => setLeftSidebarOpen(false)}
             />
           )}
@@ -2968,18 +2970,25 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
         <motion.aside
           animate={{
-            width: (leftSidebarOpen && activeView === 'chat') ? 320 : 0,
             x: (leftSidebarOpen && activeView === 'chat') ? 0 : -320,
             opacity: (leftSidebarOpen && activeView === 'chat') ? 1 : 0
           }}
           transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-          className={`absolute left-0 top-0 bottom-0 h-full flex flex-col overflow-hidden border-r shrink-0 z-40 transition-colors ${
-            theme === 'dark' ? 'bg-[#111216]/98 border-white/5' : 'bg-[#f8fafc]/98 border-slate-200/60 shadow-lg'
+          style={{ width: 'min(320px, calc(100vw - 48px))' }}
+          className={`absolute left-0 top-0 bottom-0 h-full flex flex-col overflow-hidden border-r z-40 transition-colors ${
+            theme === 'dark' ? 'bg-[#111216] border-white/5 shadow-2xl' : 'bg-[#f8fafc] border-slate-200/60 shadow-2xl'
           }`}
         >
-          <div className="w-[320px] h-full flex flex-col justify-between p-5 shrink-0 font-sans">
+          <div className="w-full h-full flex flex-col justify-between p-5 shrink-0 font-sans">
             <div className="space-y-6">
               <div className="flex items-center justify-between space-x-2">
+                <button
+                  onClick={startNewChat}
+                  className="flex-1 bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition shadow-xs active:scale-95 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 text-slate-900 stroke-[2.5]" />
+                  <span>New chat</span>
+                </button>
                 <button
                   onClick={() => setLeftSidebarOpen(false)}
                   className={`p-2.5 rounded-lg transition active:scale-95 flex items-center justify-center cursor-pointer ${
@@ -2987,14 +2996,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                   }`}
                   title="Collapse sidebar"
                 >
-                  <Menu className="w-4.5 h-4.5" />
-                </button>
-                <button
-                  onClick={startNewChat}
-                  className="flex-1 bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-xs py-2.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition shadow-xs active:scale-95 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 text-slate-900 stroke-[2.5]" />
-                  <span>New chat</span>
+                  <XIcon className="w-4.5 h-4.5" />
                 </button>
               </div>
 
@@ -3062,7 +3064,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                               onClick={() => setEditingSessionId(null)}
                               className="p-1 hover:bg-red-500/20 text-red-500 rounded transition shrink-0"
                             >
-                              <X className="w-3.5 h-3.5" />
+                              <XIcon className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         ) : (
@@ -3120,31 +3122,37 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 </div>
               </div>
             </div>
+
           </div>
+
+          {/* Profile at bottom of sidebar - Gemini style */}
+          {currentUser && (
+            <div className="shrink-0 border-t border-white/5 dark:border-white/5 px-3 py-2.5 mt-auto">
+              <button
+                onClick={() => { setActiveView(activeView === 'profile' ? 'chat' : 'profile'); setProfileDisplayName(currentUser.displayName || ''); setProfileSuccessMessage(null); setLeftSidebarOpen(false); }}
+                className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-white/5 dark:hover:bg-white/5 hover:bg-black/5 transition cursor-pointer"
+              >
+                <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0">
+                  {(currentUser.displayName || currentUser.email || 'U')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 text-left min-w-0">
+                  <p className="text-xs font-semibold truncate text-slate-200 dark:text-slate-200">
+                    {currentUser.displayName || currentUser.email?.split('@')[0] || 'User'}
+                  </p>
+                  <p className="text-[10px] opacity-40 truncate">{currentUser.email}</p>
+                </div>
+                <Settings className="w-3.5 h-3.5 opacity-40 shrink-0" />
+              </button>
+            </div>
+          )}
         </motion.aside>
 
         {/* INTERACTIVE CHAT CONSOLE AREA */}
-        <main className={`flex-1 flex flex-col overflow-hidden relative transition-all duration-300 ${
-          leftSidebarOpen && activeView === 'chat' && !isMobileScreen ? 'pl-[320px]' : ''
-        } ${
-          rightSidebarOpen && !isMobileScreen ? 'pr-[340px]' : ''
-        }`}>
-          {!leftSidebarOpen && activeView === 'chat' && (
-            <button
-              onClick={() => setLeftSidebarOpen(true)}
-              className={`absolute left-4 top-4 z-20 p-2.5 rounded-lg transition active:scale-95 flex items-center justify-center cursor-pointer border ${
-                theme === 'dark'
-                  ? 'bg-[#18191e]/90 hover:bg-white/5 border-zinc-800 text-slate-300 shadow-md'
-                  : 'bg-white/90 hover:bg-black/5 border-slate-200/60 text-slate-700 shadow-md'
-              }`}
-              title="Expand sidebar"
-            >
-              <Menu className="w-4.5 h-4.5" />
-            </button>
-          )}
+        <main className="flex-1 flex flex-col overflow-hidden relative">
+
           {activeView === 'profile' ? (
             /* SLEEK STANDALONE PROFILE PAGE */
-            <div className="flex-1 overflow-y-auto px-6 py-10 scrollbar-thin font-sans">
+            <div className="flex-1 overflow-y-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6 md:py-10 scrollbar-thin font-sans">
               <div className="max-w-xl mx-auto w-full">
                 
                 {/* Back to Chat button */}
@@ -3367,7 +3375,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           ) : (
             <>
               {/* MESSAGE SCREEN */}
-              <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6 scrollbar-thin">
                 
                 {(!activeSession || activeSession.messages.length === 0) ? (
     
@@ -3375,9 +3383,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="max-w-xl mx-auto min-h-full flex flex-col justify-start md:justify-center pt-10 pb-20 md:py-12 relative z-10 space-y-6 select-none"
+                className="max-w-xl mx-auto w-full min-h-full flex flex-col justify-start md:justify-center pt-6 sm:pt-10 pb-20 md:py-12 relative z-10 space-y-5 sm:space-y-6 select-none px-2 sm:px-4 md:px-0"
               >
-                <div className="flex flex-col items-center select-none pt-4 md:pt-0">
+                <div className="flex flex-col items-center select-none pt-2 sm:pt-4 md:pt-0">
                   <motion.div 
                     animate={{ y: [0, -8, 0] }}
                     transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
@@ -3396,32 +3404,11 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 </div>
 
                 <div className="text-center space-y-2.5">
-                  <h2 className="text-4xl font-extrabold tracking-tight select-none leading-none">
-                    {currentUser?.displayName || currentUser?.email ? (
-                      <>
-                        <span className="text-cyan-500 dark:text-cyan-400">
-                          {(() => {
-                            const h = new Date().getHours();
-                            if (h < 12) return 'Good morning,';
-                            if (h < 17) return 'Good afternoon,';
-                            if (h < 21) return 'Good evening,';
-                            return 'Good night,';
-                          })()}{' '}
-                        </span>
-                        <span className="text-amber-500 dark:text-amber-400">
-                          {currentUser.displayName
-                            ? currentUser.displayName.trim()
-                            : currentUser.email!.split('@')[0]}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-cyan-500 dark:text-cyan-400">Welcome to </span>
-                        <span className="text-amber-500 dark:text-amber-400">GroundLink</span>
-                      </>
-                    )}
+                  <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight select-none leading-none">
+                    <span className="text-cyan-500 dark:text-cyan-400">Welcome to </span>
+                    <span className="text-amber-500 dark:text-amber-400">GroundLink</span>
                   </h2>
-                  <p className="text-[18px] font-bold opacity-80">
+                  <p className="text-[14px] sm:text-[18px] font-bold opacity-80">
                     How can I help you today?
                   </p>
                   <p className="text-[11px] font-medium opacity-40">
@@ -3435,7 +3422,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                     <span className="text-[11px] font-bold tracking-wider opacity-60">interactive sample prompts</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 w-full px-2 sm:px-0">
                     <button
                       onClick={() => sendMessageFlow('Explain what GroundLink is in simple terms')}
                       className={`text-left border p-4 rounded-2xl text-xs font-medium leading-relaxed transition hover:scale-[0.99] active:scale-[0.97] cursor-pointer ${
@@ -3478,7 +3465,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
             ) : (
 
               /* DIALOG FLOW STREAM */
-              <div className="max-w-4xl mx-auto space-y-6 pb-24 font-normal">
+              <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6 pb-24 font-normal px-2 sm:px-4 md:px-0">
 
                 {activeSession.messages.map((msg, i) => {
                   const isUser = msg.role === 'user';
@@ -3489,9 +3476,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                       key={msg.id || i}
                       className={`flex flex-col space-y-2 group/msg w-full ${isUser ? 'items-end' : 'items-start'}`}
                     >
-                      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} items-start w-full gap-3.5`}>
+                      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} items-start w-full`}>
                         {!isUser && (
-                          <div className="relative shrink-0 mt-1 select-none">
+                          <div className="hidden relative shrink-0 mt-1 select-none">
                             <div className="absolute inset-0 bg-cyan-500/15 rounded-full blur-xs"></div>
                             <div className="p-1 rounded-full border border-slate-200/80 dark:border-white/5 bg-slate-100 dark:bg-zinc-900 shadow-xs relative">
                               <ChatLogo className="w-7.5 h-7.5" />
@@ -3501,7 +3488,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
                         {/* MESSAGE BUBBLE - CLEAN MINIMALIST THEME */}
                         <div
-                          className={`relative rounded-2xl p-4 text-[13px] md:text-sm leading-relaxed max-w-[86%] transition-all border ${
+                          className={`relative rounded-2xl p-3 sm:p-4 text-[13px] sm:text-sm leading-relaxed w-full sm:max-w-[86%] max-w-full transition-all border ${
                             isUser
                               ? theme === 'dark'
                                 ? 'bg-[#202127] border-[#2f313a] text-slate-100 rounded-2xl rounded-tr-none'
@@ -3578,7 +3565,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                                 {isUser ? (
                                   <div className="whitespace-pre-wrap select-text">{msg.text}</div>
                                 ) : (
-                                  <div className="max-w-none text-left select-text break-words leading-relaxed [&_p]:mb-2 [&_p]:last:mb-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-2 [&_li]:leading-relaxed [&_strong]:font-semibold [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:dark:bg-black/35 [&_code]:text-[12px] [&_code]:font-mono [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:opacity-75">
+                                  <div className="prose prose-sm dark:prose-invert max-w-none text-left select-text break-words">
                                     <ReactMarkdown 
                                       remarkPlugins={[remarkGfm]}
                                       components={{
@@ -3588,7 +3575,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                                             const itemNumber = parseInt(href.replace('citation-', ''));
                                             const matchedItem = msg.retrieved ? msg.retrieved[itemNumber - 1] : null;
                                             return (
-                                              <span
+                                              <sup
                                                 onClick={() => {
                                                   if (matchedItem) {
                                                     setSelectedMatch(matchedItem);
@@ -3596,35 +3583,14 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                                                     setRightSidebarOpen(true);
                                                   }
                                                 }}
-                                                style={{
-                                                  display: 'inline-flex',
-                                                  alignItems: 'center',
-                                                  justifyContent: 'center',
-                                                  verticalAlign: 'middle',
-                                                  textDecoration: 'none',
-                                                  lineHeight: 1,
-                                                  fontSize: '10px',
-                                                  fontWeight: 500,
-                                                  cursor: 'pointer',
-                                                  userSelect: 'none',
-                                                  margin: '0 2px',
-                                                  padding: '1px 4px',
-                                                  borderRadius: '4px',
-                                                  background: 'rgba(6,182,212,0.15)',
-                                                  color: 'rgb(8,145,178)',
-                                                  border: '1px solid rgba(6,182,212,0.3)',
-                                                  boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                                                  transition: 'all 0.15s',
-                                                  position: 'relative',
-                                                  top: '-1px',
-                                                }}
-                                                title={matchedItem ? `Source: ${matchedItem.docTitle} (click to inspect)` : `Citation [${itemNumber}]`}
+                                                className="text-[10px] font-normal text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:underline cursor-pointer select-none ml-2 mr-0.5 transition duration-150 inline font-mono"
+                                                title={matchedItem ? `Inspect Source: "${matchedItem.docTitle}"` : `Document [${itemNumber}]`}
                                               >
-                                                {itemNumber}
-                                              </span>
+                                                [{itemNumber}]
+                                              </sup>
                                             );
                                           }
-                                          return <a href={href} style={{ textDecoration: 'underline' }} className="text-cyan-600 dark:text-cyan-400 hover:opacity-80 transition" {...props}>{children}</a>;
+                                          return <a href={href} className="text-cyan-600 dark:text-cyan-400 underline hover:opacity-80 transition" {...props}>{children}</a>;
                                         },
                                         ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-2 space-y-1" {...props} />,
                                         ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-2 space-y-1" {...props} />,
@@ -3744,8 +3710,8 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
 
           {/* CHAT INPUT PANEL */}
-          <div className="p-4 bg-transparent border-t-0 z-10 transition-colors">
-            <div className="max-w-2xl mx-auto">
+          <div className="px-2 sm:px-4 py-3 sm:py-4 bg-transparent border-t-0 z-10 transition-colors">
+            <div className="max-w-2xl mx-auto w-full">
               
 
 
@@ -3785,7 +3751,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                         className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 hover:scale-110 transition shrink-0"
                         title="Remove attachment"
                       >
-                        <X className="w-3 h-3" />
+                        <XIcon className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
@@ -3807,7 +3773,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                     className="text-slate-450 hover:text-slate-650 dark:hover:text-slate-200 p-0.5 cursor-pointer shrink-0"
                     title="Dismiss notice"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <XIcon className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
@@ -3818,70 +3784,80 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                   : 'bg-[#f4f4f4] border-slate-200 focus-within:border-slate-300'
               }`}>
                 
-                <div className="flex items-center space-x-2 w-full">
-                  {/* File Upload Attachment Trigger — removed: users should upload via sidebar */}
+                <div className="flex items-end space-x-2 w-full pb-0.5">
+                  {/* File upload removed from chat bar — use Document Control Panel sidebar */}
                   <input
                     ref={cameraFileInputRef}
                     type="file"
-                    accept="image/*,video/*,.pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
+                    accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md"
                     className="hidden"
                     onChange={handleChatBarFileChange}
                   />
 
-                  <input
-                    type="text"
+                  <textarea
+                    ref={chatTextAreaRef}
+                    rows={1}
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') sendMessageFlow();
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessageFlow();
+                      }
                     }}
                     disabled={isLoading}
                     placeholder={isVoiceRecording ? "Listening... Speak now and click mic again to pause." : "Ask GroundLink..."}
-                    className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-xs md:text-sm font-medium tracking-wide py-1 px-2 ${
+                    className={`flex-1 bg-transparent border-none outline-none ring-0 focus:ring-0 focus:outline-none text-xs md:text-sm font-medium tracking-wide py-1.5 px-2 resize-none max-h-40 overflow-y-auto ${
                       isVoiceRecording ? 'text-amber-500 dark:text-amber-400 animate-pulse font-semibold' : (theme === 'dark' ? 'text-zinc-100 placeholder-zinc-500' : 'text-zinc-800 placeholder-zinc-400')
                     }`}
                   />
 
-                  {/* Voice typing */}
-                  <button
-                    type="button"
-                    onClick={handleVoiceRecording}
-                    disabled={isLoading}
-                    className={`p-1.5 rounded-lg transition active:scale-90 disabled:opacity-20 shrink-0 cursor-pointer ${
-                      isVoiceRecording 
-                        ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 shadow-[0_0_12px_rgba(245,158,11,0.25)]' 
-                        : 'text-slate-400 hover:text-amber-500 hover:bg-black/10 dark:hover:bg-white/5'
-                    }`}
-                    title={isVoiceRecording ? "Stop voice typing" : "Voice typing"}
-                  >
-                    {isVoiceRecording ? <MicOff className="w-4.5 h-4.5 animate-pulse text-amber-500" /> : <Mic className="w-4.5 h-4.5" />}
-                  </button>
+                  {/* Right side controls */}
+                  <div className="flex items-center space-x-1 shrink-0 pb-1">
+                    {/* Voice typing */}
+                    <button
+                      type="button"
+                      onClick={handleVoiceRecording}
+                      disabled={isLoading}
+                      className={`p-1.5 rounded-lg transition active:scale-90 disabled:opacity-20 shrink-0 cursor-pointer ${
+                        isVoiceRecording 
+                          ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 shadow-[0_0_12px_rgba(245,158,11,0.25)]' 
+                          : 'text-slate-400 hover:text-amber-500 hover:bg-black/10 dark:hover:bg-white/5'
+                      }`}
+                      title={isVoiceRecording ? "Stop voice typing" : "Voice typing"}
+                    >
+                      {isVoiceRecording ? <MicOff className="w-4.5 h-4.5 animate-pulse text-amber-500" /> : <Mic className="w-4.5 h-4.5" />}
+                    </button>
 
-                  {/* Submit button */}
-                  <button
-                    onClick={() => sendMessageFlow()}
-                    disabled={isLoading || (!inputText.trim() && attachedFiles.length === 0)}
-                    className="p-1.5 rounded-xl bg-yellow-500 text-zinc-950 hover:bg-yellow-400 disabled:opacity-30 disabled:bg-transparent disabled:text-zinc-500 transition active:scale-90 shrink-0"
-                    title="Send message"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
+                    {/* Submit button */}
+                    <button
+                      onClick={() => sendMessageFlow()}
+                      disabled={isLoading || (!inputText.trim() && attachedFiles.length === 0)}
+                      className="p-1.5 rounded-xl bg-yellow-500 text-zinc-950 hover:bg-yellow-400 disabled:opacity-30 disabled:bg-transparent disabled:text-zinc-500 transition active:scale-90 shrink-0"
+                      title="Send message"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+          {/* Mobile safe area spacer */}
+          <div className="h-safe-area-inset-bottom sm:hidden" />
             </>
           )}
     </main>
 
+
         {/* Dimmed click-outside backdrop overlay to close sidebars easily (mobile only) */}
         <AnimatePresence>
-          {rightSidebarOpen && isMobileScreen && (
+          {rightSidebarOpen && (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="lg:hidden absolute inset-0 bg-black/30 backdrop-blur-xs z-30 transition-opacity animate-fade-in"
+              className="absolute inset-0 bg-black/40 z-30 transition-opacity"
               onClick={() => setRightSidebarOpen(false)}
             />
           )}
@@ -3889,16 +3865,16 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
         <motion.aside
           animate={{
-            width: rightSidebarOpen ? 340 : 0,
             x: rightSidebarOpen ? 0 : 340,
             opacity: rightSidebarOpen ? 1 : 0
           }}
           transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-          className={`absolute right-0 top-0 bottom-0 h-full flex flex-col overflow-hidden border-l shrink-0 z-40 transition-colors ${
+          style={{ width: 'min(340px, calc(100vw - 48px))' }}
+          className={`absolute right-0 top-0 bottom-0 h-full flex flex-col overflow-hidden border-l z-40 transition-colors ${
             theme === 'dark' ? 'bg-[#111216]/98 border-white/5' : 'bg-[#f8fafc]/98 border-slate-200/60 shadow-lg'
           }`}
         >
-          <div className="w-[340px] h-full flex flex-col justify-between p-5 shrink-0 overflow-hidden font-sans">
+          <div className="w-[340px] max-w-[calc(100vw-20px)] h-full flex flex-col justify-between p-5 shrink-0 overflow-hidden font-sans">
                 
                 <div className="space-y-4 flex flex-col flex-1 overflow-hidden">
                   <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/5 pb-2.5 shrink-0">
@@ -3907,7 +3883,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                       <span>Document Control Panel</span>
                     </span>
                     <button onClick={() => setRightSidebarOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-md cursor-pointer transition">
-                      <X className="w-4 h-4" />
+                      <XIcon className="w-4 h-4" />
                     </button>
                   </div>
 
@@ -3989,7 +3965,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 onClick={() => setSharingSession(null)}
                 className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/5 transition"
               >
-                <X className="w-4 h-4 text-slate-400" />
+                <XIcon className="w-4 h-4 text-slate-400" />
               </button>
 
               <div className="space-y-4">
@@ -4087,7 +4063,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
                 className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/5 transition"
               >
-                <X className="w-4 h-4 text-slate-400" />
+                <XIcon className="w-4 h-4 text-slate-400" />
               </button>
 
               <div className="space-y-4 font-sans">
