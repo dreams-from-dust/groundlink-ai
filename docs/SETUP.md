@@ -19,8 +19,7 @@ Complete instructions for running GroundLink AI locally and deploying to Vercel.
 
 1. Go to aistudio.google.com/apikey
 2. Click Create API Key
-3. Select your existing Google project (gen-lang-client-0019255293)
-4. Copy the key — it starts with AIzaSy
+4. Copy the key
 5. Free tier: 1500 requests per day, 15 per minute
 
 ### Groq API (required — primary LLM)
@@ -31,10 +30,6 @@ Complete instructions for running GroundLink AI locally and deploying to Vercel.
 4. Click Create API Key, give it a name
 5. Copy the key — it starts with gsk_
 6. Free tier: 14,400 requests per day on llama-3.3-70b
-
-### Firebase (already configured for this project)
-
-The Firebase project (gen-lang-client-0019255293) is already set up. You do not need to create a new one. If you fork this project for your own use, create a new Firebase project and replace all VITE_FIREBASE_ values.
 
 ---
 
@@ -57,8 +52,8 @@ cp .env.example .env.local
 Open `.env.local` and fill in your keys:
 
 ```env
-GEMINI_API_KEY=AIzaSy-your-gemini-key-here
-GROQ_API_KEY=gsk_your-groq-key-here
+GEMINI_API_KEY=
+GROQ_API_KEY=
 APP_URL=http://localhost:5173
 NODE_ENV=development
 ```
@@ -104,20 +99,20 @@ In Vercel dashboard, go to your project, then Settings, then Environment Variabl
 
 | Variable | Value |
 |---|---|
-| GEMINI_API_KEY | Your Gemini key from aistudio.google.com/apikey |
-| GROQ_API_KEY | Your Groq key from console.groq.com |
-| APP_URL | https://your-app.vercel.app |
+| GEMINI_API_KEY | 
+| GROQ_API_KEY | 
+| APP_URL | 
 | NODE_ENV | production |
-| FIREBASE_PROJECT_ID | gen-lang-client-0019255293 |
-| FIREBASE_FIRESTORE_DATABASE_ID | ai-studio-ragexplorer-c25d6bd6-b09f-4e1a-b772-6f1d3a3aca3c |
-| FIREBASE_SERVICE_ACCOUNT_JSON | Full JSON contents of Firebase service account key |
-| VITE_FIREBASE_API_KEY | AIzaSyC5Fk7DpeaFE-eG9v-uIY8Q51mjNWnw-pk |
-| VITE_FIREBASE_AUTH_DOMAIN | gen-lang-client-0019255293.firebaseapp.com |
-| VITE_FIREBASE_PROJECT_ID | gen-lang-client-0019255293 |
-| VITE_FIREBASE_STORAGE_BUCKET | gen-lang-client-0019255293.firebasestorage.app |
-| VITE_FIREBASE_MESSAGING_SENDER_ID | 28710994938 |
-| VITE_FIREBASE_APP_ID | 1:28710994938:web:e9570cf2cf1ade2e68da43 |
-| VITE_FIREBASE_FIRESTORE_DATABASE_ID | ai-studio-ragexplorer-c25d6bd6-b09f-4e1a-b772-6f1d3a3aca3c |
+| FIREBASE_PROJECT_ID |
+| FIREBASE_FIRESTORE_DATABASE_ID | 
+| FIREBASE_SERVICE_ACCOUNT_JSON | 
+| VITE_FIREBASE_API_KEY |
+| VITE_FIREBASE_AUTH_DOMAIN | 
+| VITE_FIREBASE_PROJECT_ID | 
+| VITE_FIREBASE_STORAGE_BUCKET | 
+| VITE_FIREBASE_MESSAGING_SENDER_ID |
+| VITE_FIREBASE_APP_ID |
+| VITE_FIREBASE_FIRESTORE_DATABASE_ID |
 
 ### Get the Firebase Service Account JSON
 
