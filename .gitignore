@@ -11,3 +11,4 @@ firebase-applet-config.json
 .DS_Store
 *.log
 *.tsbuildinfo
+docs/
