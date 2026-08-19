@@ -1345,7 +1345,7 @@ This document provides details on configuring and optimizing the grounded retrie
               try {
                 console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
                 const dataBuffer = Buffer.from(rawBase64, 'base64');
-                parserInstance = new PDFParse({ data: new Uint8Array(dataBuffer) });
+                parserInstance = new pdfParse{ data: new Uint8Array(dataBuffer) });
                 const pdfData = await parserInstance.getText();
                 text = pdfData.text || "";
                 console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
@@ -1603,7 +1603,7 @@ This document provides details on configuring and optimizing the grounded retrie
           if (ext === 'pdf') {
             let parserInstance: PDFParse | null = null;
             try {
-              parserInstance = new PDFParse({ data: new Uint8Array(buffer) });
+              parserInstance = new pdfParse{ data: new Uint8Array(buffer) });
               const pdfData = await parserInstance.getText();
               const pdfText = (pdfData.text || '').trim();
               extractedTextBlocks.push({
