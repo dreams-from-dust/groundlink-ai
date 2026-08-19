@@ -50,7 +50,10 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2"
   },
+  "resolutions": {
+    "jose": "^5.9.0"
+  },
   "overrides": {
-    "jose": "^4.15.5"
+    "jose": "^5.9.0"
   }
 }
