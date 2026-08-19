@@ -1,6 +1,10 @@
 // GroundLink AI - Vercel Serverless API Handler
 // All routes from server.ts exported as a single Express app for Vercel
 
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -10,11 +14,10 @@ import path from 'path';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
-import WordExtractor from 'word-extractor';
+const WordExtractor = require('word-extractor');
 
 // Embedding vector dimension - must stay consistent across Jina AI responses,
 // the local heuristic fallback, and zero-vector error fallbacks, or cosine similarity breaks.
