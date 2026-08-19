@@ -1342,7 +1342,15 @@ This document provides details on configuring and optimizing the grounded retrie
             try {
               console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
               const dataBuffer = Buffer.from(rawBase64, 'base64');
-              const pdfData = await pdf(dataBuffer);
+              
+              // Correctly use PDFParse as a constructor based on your import
+              const parser = new PDFParse({ data: dataBuffer });
+              const pdfData = await parser.getText();
+              
+              if (typeof parser.destroy === 'function') {
+                await parser.destroy();
+              }
+              
               text = pdfData.text || "";
               console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
               if (text.trim().length === 0) {
