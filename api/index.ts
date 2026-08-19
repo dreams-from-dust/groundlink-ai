@@ -977,12 +977,10 @@ app.use((req: any, res: any, next: any) => {
     allowed.push(...process.env.EXTRA_ORIGINS.split(',').map((o: string) => o.trim()).filter(Boolean));
   }
 
-  // If origin exists and matches whitelist or Vercel preview/production domains
+  // Always allow CORS headers for valid origins or handle missing origins gracefully
   if (origin) {
-    const isVercel = origin.endsWith('.vercel.app');
-    const isAllowed = allowed.includes(origin) || isVercel;
-
-    if (isAllowed) {
+    const ok = allowed.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.google.com');
+    if (ok) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
@@ -993,7 +991,7 @@ app.use((req: any, res: any, next: any) => {
     }
   }
 
-  // Handle browser preflight OPTIONS requests immediately
+  // Handle browser preflight OPTIONS requests immediately and correctly
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
