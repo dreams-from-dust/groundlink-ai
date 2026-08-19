@@ -1,9 +1,7 @@
 // GroundLink AI - Vercel Serverless API Handler
 // All routes from server.ts exported as a single Express app for Vercel
 
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+import { PDFParse } from 'pdf-parse';
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
@@ -17,7 +15,7 @@ import { getAuth } from 'firebase-admin/auth';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
-const WordExtractor = require('word-extractor');
+import WordExtractor from 'word-extractor';
 
 // Embedding vector dimension - must stay consistent across Jina AI responses,
 // the local heuristic fallback, and zero-vector error fallbacks, or cosine similarity breaks.
@@ -1341,10 +1339,12 @@ This document provides details on configuring and optimizing the grounded retrie
             // Decode text and markdown files instantly on the server-side - no API needed
             text = Buffer.from(rawBase64, 'base64').toString('utf8');
           } else if (extension === 'pdf') {
+            let parser: PDFParse | null = null;
             try {
               console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
               const dataBuffer = Buffer.from(rawBase64, 'base64');
-              const pdfData = await pdfParse(dataBuffer);
+              parser = new PDFParse({ data: dataBuffer });
+              const pdfData = await parser.getText();
               text = pdfData.text || "";
               console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
               if (text.trim().length === 0) {
@@ -1353,6 +1353,14 @@ This document provides details on configuring and optimizing the grounded retrie
             } catch (pdfErr: any) {
               console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
               text = "";
+            } finally {
+              if (parser) {
+                try {
+                  await parser.destroy();
+                } catch (destroyErr) {
+                  console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
+                }
+              }
             }
           } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
   console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
@@ -1591,8 +1599,10 @@ app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res)
 
         // PDF - dedicated local parser
         if (ext === 'pdf') {
+          let parser: PDFParse | null = null;
           try {
-            const pdfData = await pdfParse(buffer);
+            parser = new PDFParse({ data: buffer });
+            const pdfData = await parser.getText();
             const pdfText = (pdfData.text || '').trim();
             extractedTextBlocks.push({
               name: file.name,
@@ -1601,6 +1611,14 @@ app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res)
           } catch (err: any) {
             console.error(`Failed to parse attached PDF ${file.name}:`, err.message || err);
             extractedTextBlocks.push({ name: file.name, content: '[Failed to parse this PDF.]' });
+          } finally {
+            if (parser) {
+              try {
+                await parser.destroy();
+              } catch (destroyErr) {
+                console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
+              }
+            }
           }
           continue;
         }
