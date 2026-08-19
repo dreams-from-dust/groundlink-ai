@@ -1,10 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "node_modules/@napi-rs/**"
-    }
-  },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.ts" }
   ]

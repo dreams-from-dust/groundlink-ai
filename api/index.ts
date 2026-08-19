@@ -1,7 +1,19 @@
 // GroundLink AI - Vercel Serverless API Handler
 // All routes from server.ts exported as a single Express app for Vercel
 
-import { PDFParse } from 'pdf-parse';
+// pdf-parse v2 ships as ESM-only (no CJS "main" entry). If Vercel's esbuild
+// step bundles this file to CommonJS, a static `import` is transpiled to
+// `require()`, which throws ERR_REQUIRE_ESM. A dynamic import() is always
+// resolved through Node's native ESM loader, so it works from either a CJS
+// or ESM bundle. Cache the constructor after first load.
+let PDFParseCtor: any = null;
+async function getPDFParse(): Promise<any> {
+  if (!PDFParseCtor) {
+    const mod: any = await import('pdf-parse');
+    PDFParseCtor = mod.PDFParse || mod.default?.PDFParse || mod.default;
+  }
+  return PDFParseCtor;
+}
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
@@ -979,7 +991,11 @@ app.use((req: any, res: any, next: any) => {
 
   // Always allow CORS headers for valid origins or handle missing origins gracefully
   if (origin) {
-    const ok = allowed.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.google.com');
+    const ok = allowed.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.google.com') ||
+      origin.endsWith('.googleusercontent.com') ||
+      origin.endsWith('.run.app');
     if (ok) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -1087,42 +1103,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-
-// 3. Robust CORS Domain Protection Middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://ais-dev-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
-    'https://ais-pre-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ];
-
-  if (origin) {
-    const isAllowed = allowedOrigins.includes(origin) ||
-      origin.endsWith('.google.com') ||
-      origin.endsWith('.googleusercontent.com') ||
-      origin.endsWith('.run.app');
-
-    if (isAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else {
-      console.warn(`[SECURITY WARNING - CORS BLOCK] Unauthorized origin request rejected: ${origin}`);
-      return res.status(403).json({ error: 'Access Denied: CORS Policy violation.' });
-    }
-  }
-
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// Middlewares
-app.use(express.json({ limit: '120mb' }));
 
 // API Route: Database Health and Stats
 app.get('/api/stats', authenticateUser, async (req: any, res) => {
@@ -1358,6 +1338,7 @@ This document provides details on configuring and optimizing the grounded retrie
               const dataBuffer = Buffer.from(rawBase64, 'base64');
               
               // Correctly use PDFParse as a constructor based on your import
+              const PDFParse = await getPDFParse();
               const parser = new PDFParse({ data: dataBuffer });
               const pdfData = await parser.getText();
               
@@ -1611,8 +1592,9 @@ app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res)
 
         // PDF - dedicated local parser
         if (ext === 'pdf') {
-          let parser: PDFParse | null = null;
+          let parser: any = null;
           try {
+            const PDFParse = await getPDFParse();
             parser = new PDFParse({ data: buffer });
             const pdfData = await parser.getText();
             const pdfText = (pdfData.text || '').trim();
