@@ -1341,30 +1341,20 @@ This document provides details on configuring and optimizing the grounded retrie
             // Decode text and markdown files instantly on the server-side - no API needed
             text = Buffer.from(rawBase64, 'base64').toString('utf8');
           } else if (extension === 'pdf') {
-            let parserInstance: PDFParse | null = null;
             try {
               console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
               const dataBuffer = Buffer.from(rawBase64, 'base64');
-              parserInstance = new pdfParse{ data: new Uint8Array(dataBuffer) });
-const pdfData = await parserInstance.getText();
-text = pdfData.text || "";
-console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
-if (text.trim().length === 0) {
-  throw new Error("No text content could be parsed from the PDF.");
-}
-              } catch (pdfErr: any) {
-  console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
-  text = "";
-} finally {
-  if (parserInstance) {
-    try {
-      await parserInstance.destroy();
-    } catch (destroyErr) {
-      console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
-    }
-  }
-}
-            } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
+              const pdfData = await pdfParse(dataBuffer);
+              text = pdfData.text || "";
+              console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
+              if (text.trim().length === 0) {
+                throw new Error("No text content could be parsed from the PDF.");
+              }
+            } catch (pdfErr: any) {
+              console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
+              text = "";
+            }
+          } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
   console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
   const dataBuffer = Buffer.from(rawBase64, 'base64');
   const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
