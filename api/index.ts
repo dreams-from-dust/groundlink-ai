@@ -1126,7 +1126,7 @@ app.get('/api/stats', authenticateUser, async (req: any, res) => {
       totalChunks: chunks.length,
       totalDocs: documentsSet.size,
       documents: docsSummary,
-      hasApiKey: !!process.env.OPENROUTER_API_KEY
+      hasApiKey: !!(process.env.GROQ_API_KEY || process.env.JINA_API_KEY)
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1339,12 +1339,10 @@ This document provides details on configuring and optimizing the grounded retrie
             // Decode text and markdown files instantly on the server-side - no API needed
             text = Buffer.from(rawBase64, 'base64').toString('utf8');
           } else if (extension === 'pdf') {
-            let parser: PDFParse | null = null;
             try {
               console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
               const dataBuffer = Buffer.from(rawBase64, 'base64');
-              parser = new PDFParse({ data: dataBuffer });
-              const pdfData = await parser.getText();
+              const pdfData = await pdf(dataBuffer);
               text = pdfData.text || "";
               console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
               if (text.trim().length === 0) {
@@ -1353,114 +1351,106 @@ This document provides details on configuring and optimizing the grounded retrie
             } catch (pdfErr: any) {
               console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
               text = "";
-            } finally {
-              if (parser) {
-                try {
-                  await parser.destroy();
-                } catch (destroyErr) {
-                  console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
-                }
-              }
             }
           } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
-  console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
-  const dataBuffer = Buffer.from(rawBase64, 'base64');
-  const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
-  if (extractedText && extractedText.trim() !== "") {
-    console.info(`[Local Document Parser] Successfully parsed ${extractedText.length} characters from ${title}`);
-    text = extractedText;
-  } else if (!supported) {
-    text = extractedText || `[Unsupported File Type] The file "${title}" (.${extension}) could not be parsed.`;
-  } else {
-    text = `Document File: "${title}"\n- Format: ${extension.toUpperCase()}\n- Description: File was processed but no extractable text content was found (the file may be empty or image-only).`;
-  }
-} else {
-  text = `[Unsupported File Type] The file "${title}" (.${extension}) is not a supported format. GroundLink AI currently supports: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files.`;
-}
-          } catch (err: any) {
-  console.error(`Document parser error on ${title}:`, err);
-  console.warn(`Fallback document index created for ${title} due to extraction error.`);
-  text = `Document File: "${title}"
+            console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
+            const dataBuffer = Buffer.from(rawBase64, 'base64');
+            const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
+            if (extractedText && extractedText.trim() !== "") {
+              console.info(`[Local Document Parser] Successfully parsed ${extractedText.length} characters from ${title}`);
+              text = extractedText;
+            } else if (!supported) {
+              text = extractedText || `[Unsupported File Type] The file "${title}" (.${extension}) could not be parsed.`;
+            } else {
+              text = `Document File: "${title}"\n- Format: ${extension.toUpperCase()}\n- Description: File was processed but no extractable text content was found (the file may be empty or image-only).`;
+            }
+          } else {
+            text = `[Unsupported File Type] The file "${title}" (.${extension}) is not a supported format. GroundLink AI currently supports: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files.`;
+          }
+        } catch (err: any) {
+          console.error(`Document parser error on ${title}:`, err);
+          console.warn(`Fallback document index created for ${title} due to extraction error.`);
+          text = `Document File: "${title}"
 - Format: ${extension.toUpperCase()}
 - Description: Custom uploaded file "${title}" added to GroundLink AI Knowledge Base.
 - Content Summary: Registered and indexed for document search and RAG contextual retrieval. Text extraction encountered an error: ${err.message || 'unknown error'}.`;
-}
         }
-
-if (text.trim().length === 0) continue;
-
-const chunks = chunkText(text, title, chunkSize, chunkOverlap);
-allChunks.push(...chunks);
       }
 
-if (allChunks.length === 0) {
-  return res.json({ success: true, count: 0 });
-}
+      if (text.trim().length === 0) continue;
 
-// Generate Embeddings
-const indexChunks: Chunk[] = [];
-const batchSize = 50;
+      const chunks = chunkText(text, title, chunkSize, chunkOverlap);
+      allChunks.push(...chunks);
+    }
 
-for (let i = 0; i < allChunks.length; i += batchSize) {
-  const batch = allChunks.slice(i, i + batchSize);
-  let embeddingsList: any[] = [];
+    if (allChunks.length === 0) {
+      return res.json({ success: true, count: 0 });
+    }
 
-  try {
-    embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
-  } catch (embErr: any) {
-    console.warn("Jina AI embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
-    embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
-  }
+    // Generate Embeddings
+    const indexChunks: Chunk[] = [];
+    const batchSize = 50;
 
-  for (let j = 0; j < batch.length; j++) {
-    const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
-    indexChunks.push({
-      id: `chunk-custom-${Date.now()}-${i + j}`,
-      docTitle: batch[j].docTitle,
-      text: batch[j].text,
-      embedding: embValues
+    for (let i = 0; i < allChunks.length; i += batchSize) {
+      const batch = allChunks.slice(i, i + batchSize);
+      let embeddingsList: any[] = [];
+
+      try {
+        embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
+      } catch (embErr: any) {
+        console.warn("Jina AI embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
+        embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
+      }
+
+      for (let j = 0; j < batch.length; j++) {
+        const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
+        indexChunks.push({
+          id: `chunk-custom-${Date.now()}-${i + j}`,
+          docTitle: batch[j].docTitle,
+          text: batch[j].text,
+          embedding: embValues
+        });
+      }
+    }
+
+    if (!append) {
+      try {
+        await clearUserChunksAndDocs(req.user.uid);
+      } catch (err) {
+        console.warn("Server-side clear failed, falling back to client-side cleanup:", err);
+      }
+    }
+    try {
+      await saveUserChunksToDb(req.user.uid, indexChunks);
+    } catch (err) {
+      console.warn("Server-side save chunks failed, falling back to client-side write:", err);
+    }
+
+    const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
+    const docMetas = uniqueDocs.map(title => ({
+      id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
+      name: title,
+      chunkCount: indexChunks.filter(c => c.docTitle === title).length,
+      size: files.find((f: any) => f.title === title)?.text?.length || 1000
+    }));
+
+    try {
+      await saveUserDocumentsToDb(req.user.uid, docMetas);
+    } catch (err) {
+      console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
+    }
+
+    res.json({
+      success: true,
+      count: indexChunks.length,
+      chunks: indexChunks,
+      docMetas: docMetas
     });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
-}
-
-if (!append) {
-  try {
-    await clearUserChunksAndDocs(req.user.uid);
-  } catch (err) {
-    console.warn("Server-side clear failed, falling back to client-side cleanup:", err);
-  }
-}
-try {
-  await saveUserChunksToDb(req.user.uid, indexChunks);
-} catch (err) {
-  console.warn("Server-side save chunks failed, falling back to client-side write:", err);
-}
-
-const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
-const docMetas = uniqueDocs.map(title => ({
-  id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
-  name: title,
-  chunkCount: indexChunks.filter(c => c.docTitle === title).length,
-  size: files.find((f: any) => f.title === title)?.text?.length || 1000
-}));
-
-try {
-  await saveUserDocumentsToDb(req.user.uid, docMetas);
-} catch (err) {
-  console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
-}
-
-res.json({
-  success: true,
-  count: indexChunks.length,
-  chunks: indexChunks,
-  docMetas: docMetas
 });
-    } catch (err: any) {
-  console.error(err);
-  res.status(500).json({ error: err.message });
-}
-  });
 
 // API Route: Query the vector store and generate RAG responses
 app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res) => {
