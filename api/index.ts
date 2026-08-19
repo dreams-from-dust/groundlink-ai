@@ -53,11 +53,11 @@ if (firebaseConfig) {
     const app = apps.length === 0 ? initializeApp({
       projectId: firebaseConfig.projectId,
     }) : apps[0];
-    db = firebaseConfig.firestoreDatabaseId 
+    db = firebaseConfig.firestoreDatabaseId
       ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
       : getFirestore(app);
     console.log("Firebase Admin successfully initialized with project:", firebaseConfig.projectId);
-    
+
     // Verify server-side Firestore access asynchronously
     db.collection('test_connection_permission').limit(1).get()
       .then(() => {
@@ -336,22 +336,22 @@ Examining your uploaded brand logo ("dust from dreams"):
 Overall, it is an eye-catching, highly creative, and memorable logo that effectively communicates a dreamy, artistic brand identity!`;
   } else if (sourceMatches.length > 0) {
     const queryWords = lowerQuery.split(/[^a-z0-9]+/).filter(w => w.length > 3);
-    
+
     interface BestSentence {
       score: number;
       text: string;
       sourceIndex: number;
       sourceName: string;
     }
-    
+
     const candidates: BestSentence[] = [];
-    
+
     for (const item of sourceMatches) {
       const sentences = item.text.split(/(?<=[.!?])\s+/);
       for (const sent of sentences) {
         const cleanSent = sent.trim();
         if (cleanSent.length < 15) continue;
-        
+
         let score = 0;
         const lowerSent = cleanSent.toLowerCase();
         for (const word of queryWords) {
@@ -359,7 +359,7 @@ Overall, it is an eye-catching, highly creative, and memorable logo that effecti
             score += 1;
           }
         }
-        
+
         if (score > 0) {
           candidates.push({
             score,
@@ -370,20 +370,20 @@ Overall, it is an eye-catching, highly creative, and memorable logo that effecti
         }
       }
     }
-    
+
     candidates.sort((a, b) => b.score - a.score);
-    
+
     if (candidates.length > 0) {
       const usedSentences = new Set<string>();
       const itemsList: string[] = [];
-      
+
       const selected = candidates.slice(0, 5);
       for (const cand of selected) {
         if (usedSentences.has(cand.text.toLowerCase())) continue;
         usedSentences.add(cand.text.toLowerCase());
         itemsList.push(`- ${cand.text} [${cand.sourceIndex}]`);
       }
-      
+
       if (itemsList.length > 0) {
         answerText = `Key details retrieved from your documents:\n\n${itemsList.join('\n')}`;
       } else {
@@ -606,32 +606,32 @@ function cosineSimilarity(a: number[], b: number[]): number {
 // Sentence-level and paragraph-aware text splitter that preserves complete paragraphs/sentences
 function chunkText(text: string, title: string, chunkSize: number = 800, chunkOverlap: number = 150): { text: string; docTitle: string }[] {
   const normalized = text.replace(/\n{3,}/g, '\n\n').trim();
-  
+
   // Split on sentence ending punctuation followed by spaces OR consecutive newlines (paragraphs)
   // This ensures we have logically independent clauses, list items, or sentences.
   const sentences = normalized.split(/(?<=[.!?])\s+|\n+/).map(s => s.trim()).filter(s => s.length > 0);
-  
+
   const chunks: { text: string; docTitle: string }[] = [];
   if (sentences.length === 0) return chunks;
-  
+
   let currentChunk: string[] = [];
   let currentLen = 0;
-  
+
   for (let i = 0; i < sentences.length; i++) {
     const sent = sentences[i];
-    
+
     // Check if adding this segment violates chunk size constraints
     if (currentLen + sent.length + (currentChunk.length > 0 ? 1 : 0) > chunkSize && currentChunk.length > 0) {
       chunks.push({
         text: currentChunk.join(' '),
         docTitle: title
       });
-      
+
       // Calculate overlap by back-tracking several sentences
       let backtrackLen = 0;
       let backtrackIndex = i - 1;
       const backtrackedSents: string[] = [];
-      
+
       // Look back at most 5 sentences to find a reasonable overlap size without infinite looping
       while (backtrackIndex >= 0 && backtrackIndex > i - 6) {
         const backSent = sentences[backtrackIndex];
@@ -642,22 +642,22 @@ function chunkText(text: string, title: string, chunkSize: number = 800, chunkOv
         backtrackLen += backSent.length + 1;
         backtrackIndex--;
       }
-      
+
       currentChunk = [...backtrackedSents];
       currentLen = backtrackLen;
     }
-    
+
     currentChunk.push(sent);
     currentLen += sent.length + (currentChunk.length > 1 ? 1 : 0);
   }
-  
+
   if (currentChunk.length > 0) {
     chunks.push({
       text: currentChunk.join(' '),
       docTitle: title
     });
   }
-  
+
   return chunks;
 }
 
@@ -993,334 +993,334 @@ app.use((req: any, res: any, next: any) => {
 app.use(express.json({ limit: '120mb' }));
 
 
-  
-  // 1. Sliding Window Rate Limiter Store (In-Memory)
-  const rateLimitStore = new Map<string, { timestamps: number[] }>();
 
-  // Regular automated garbage collection sweep to prevent memory leaks or bloat
-  const gcInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, record] of rateLimitStore.entries()) {
-      record.timestamps = record.timestamps.filter(t => now - t < 15 * 60 * 1000);
-      if (record.timestamps.length === 0) {
-        rateLimitStore.delete(key);
-      }
+// 1. Sliding Window Rate Limiter Store (In-Memory)
+const rateLimitStore = new Map<string, { timestamps: number[] }>();
+
+// Regular automated garbage collection sweep to prevent memory leaks or bloat
+const gcInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitStore.entries()) {
+    record.timestamps = record.timestamps.filter(t => now - t < 15 * 60 * 1000);
+    if (record.timestamps.length === 0) {
+      rateLimitStore.delete(key);
     }
-  }, 5 * 60 * 1000);
+  }
+}, 5 * 60 * 1000);
 
-  if (typeof gcInterval.unref === 'function') {
-    gcInterval.unref();
+if (typeof gcInterval.unref === 'function') {
+  gcInterval.unref();
+}
+
+const createRateLimiter = (maxRequests: number, windowMs: number, endpointName: string) => {
+  return (req: any, res: any, next: any) => {
+    const clientIp = (req.headers['x-forwarded-for'] as string || req.ip || 'unknown-client').split(',')[0].trim();
+    const key = `${endpointName}:${clientIp}`;
+    const now = Date.now();
+
+    let record = rateLimitStore.get(key);
+    if (!record) {
+      record = { timestamps: [] };
+      rateLimitStore.set(key, record);
+    }
+
+    // Filter out stamps older than sliding window
+    record.timestamps = record.timestamps.filter(t => now - t < windowMs);
+
+    if (record.timestamps.length >= maxRequests) {
+      console.warn(`[SECURITY ALERT - RATE LIMIT] ${clientIp} throttled on "${endpointName}"`);
+      const retryAfterSeconds = Math.ceil((windowMs - (now - record.timestamps[0])) / 1000);
+      res.setHeader('Retry-After', retryAfterSeconds);
+      return res.status(429).json({
+        error: `Too many requests to "${endpointName}". Please slow down. Retry in ${retryAfterSeconds} seconds.`,
+        retryAfter: retryAfterSeconds
+      });
+    }
+
+    record.timestamps.push(now);
+    next();
+  };
+};
+
+// Define rate limiters for key endpoints
+const queryRateLimiter = createRateLimiter(30, 60 * 1000, "Query/Chat");
+const uploadRateLimiter = createRateLimiter(10, 60 * 1000, "Upload Documents");
+const loadSampleRateLimiter = createRateLimiter(5, 60 * 1000, "Load Sample Corpus");
+
+// 2. Custom Security Headers (Helmet-alternative designed to bypass iframe-nesting restrictions inside Google AI Studio container)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+  // Allows preview, live, and standard cloud run domains to mount our app securely inside Google's development interface.
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self' https:; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: https:; " +
+    "media-src 'self' data: https:; " +
+    "connect-src 'self' https:; " +
+    "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com https://*.run.app;"
+  );
+
+  // Disable proxy and browser caches for /api/* to protect data confidentiality of grounded resources
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  next();
+});
+
+// 3. Robust CORS Domain Protection Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://ais-dev-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
+    'https://ais-pre-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ];
+
+  if (origin) {
+    const isAllowed = allowedOrigins.includes(origin) ||
+      origin.endsWith('.google.com') ||
+      origin.endsWith('.googleusercontent.com') ||
+      origin.endsWith('.run.app');
+
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      console.warn(`[SECURITY WARNING - CORS BLOCK] Unauthorized origin request rejected: ${origin}`);
+      return res.status(403).json({ error: 'Access Denied: CORS Policy violation.' });
+    }
   }
 
-  const createRateLimiter = (maxRequests: number, windowMs: number, endpointName: string) => {
-    return (req: any, res: any, next: any) => {
-      const clientIp = (req.headers['x-forwarded-for'] as string || req.ip || 'unknown-client').split(',')[0].trim();
-      const key = `${endpointName}:${clientIp}`;
-      const now = Date.now();
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-      let record = rateLimitStore.get(key);
-      if (!record) {
-        record = { timestamps: [] };
-        rateLimitStore.set(key, record);
-      }
+// Middlewares
+app.use(express.json({ limit: '120mb' }));
 
-      // Filter out stamps older than sliding window
-      record.timestamps = record.timestamps.filter(t => now - t < windowMs);
+// API Route: Database Health and Stats
+app.get('/api/stats', authenticateUser, async (req: any, res) => {
+  try {
+    const chunks = await getUserChunks(req.user.uid);
+    const documentsSet = new Set(chunks.map(c => c.docTitle));
+    const docsSummary = Array.from(documentsSet).map(title => {
+      return {
+        title,
+        chunkCount: chunks.filter(c => c.docTitle === title).length
+      };
+    });
 
-      if (record.timestamps.length >= maxRequests) {
-        console.warn(`[SECURITY ALERT - RATE LIMIT] ${clientIp} throttled on "${endpointName}"`);
-        const retryAfterSeconds = Math.ceil((windowMs - (now - record.timestamps[0])) / 1000);
-        res.setHeader('Retry-After', retryAfterSeconds);
-        return res.status(429).json({
-          error: `Too many requests to "${endpointName}". Please slow down. Retry in ${retryAfterSeconds} seconds.`,
-          retryAfter: retryAfterSeconds
-        });
-      }
+    res.json({
+      totalChunks: chunks.length,
+      totalDocs: documentsSet.size,
+      documents: docsSummary,
+      hasApiKey: !!process.env.OPENROUTER_API_KEY
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-      record.timestamps.push(now);
-      next();
-    };
-  };
+// API Route: Clear current database and conversation
+app.post('/api/clear', authenticateUser, async (req: any, res) => {
+  try {
+    await clearUserChunksAndDocs(req.user.uid);
+    res.json({ success: true, message: "Database vector store cleared." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-  // Define rate limiters for key endpoints
-  const queryRateLimiter = createRateLimiter(30, 60 * 1000, "Query/Chat");
-  const uploadRateLimiter = createRateLimiter(10, 60 * 1000, "Upload Documents");
-  const loadSampleRateLimiter = createRateLimiter(5, 60 * 1000, "Load Sample Corpus");
-
-  // 2. Custom Security Headers (Helmet-alternative designed to bypass iframe-nesting restrictions inside Google AI Studio container)
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    
-    // Allows preview, live, and standard cloud run domains to mount our app securely inside Google's development interface.
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self' https:; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; " +
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-      "font-src 'self' https://fonts.gstatic.com; " +
-      "img-src 'self' data: https:; " +
-      "media-src 'self' data: https:; " +
-      "connect-src 'self' https:; " +
-      "frame-ancestors 'self' https://*.google.com https://*.googleusercontent.com https://*.run.app;"
-    );
-
-    // Disable proxy and browser caches for /api/* to protect data confidentiality of grounded resources
-    if (req.path.startsWith('/api/')) {
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
+// API Route: Delete a specific document and its chunks
+app.post('/api/documents/delete', authenticateUser, async (req: any, res) => {
+  try {
+    const { docTitle } = req.body;
+    if (!docTitle) {
+      return res.status(400).json({ error: "Missing docTitle parameter" });
     }
-    next();
-  });
 
-  // 3. Robust CORS Domain Protection Middleware
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    const allowedOrigins = [
-      'https://ais-dev-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
-      'https://ais-pre-2ht6m6yedg3wnt4j3unmnj-864606819593.asia-east1.run.app',
-      'http://localhost:3000',
-      'http://localhost:5173'
-    ];
+    // Remove from backend in-memory cache
+    const cached = userChunksCache.get(req.user.uid);
+    if (cached) {
+      const filtered = cached.filter(c => c.docTitle !== docTitle);
+      userChunksCache.set(req.user.uid, filtered);
+    }
 
-    if (origin) {
-      const isAllowed = allowedOrigins.includes(origin) ||
-                        origin.endsWith('.google.com') ||
-                        origin.endsWith('.googleusercontent.com') ||
-                        origin.endsWith('.run.app');
-                        
-      if (isAllowed) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
-      } else {
-        console.warn(`[SECURITY WARNING - CORS BLOCK] Unauthorized origin request rejected: ${origin}`);
-        return res.status(403).json({ error: 'Access Denied: CORS Policy violation.' });
+    if (db) {
+      // Also clean up from Firestore server-side
+      // Get chunks
+      const chunksSnapshot = await db.collection('users').doc(req.user.uid).collection('chunks')
+        .where('docTitle', '==', docTitle).get();
+
+      const chunkBatchSize = 400;
+      for (let i = 0; i < chunksSnapshot.docs.length; i += chunkBatchSize) {
+        const batch = db.batch();
+        const batchDocs = chunksSnapshot.docs.slice(i, i + chunkBatchSize);
+        for (const doc of batchDocs) {
+          batch.delete(doc.ref);
+        }
+        await batch.commit();
+      }
+
+      // Get documents
+      const docsSnapshot = await db.collection('users').doc(req.user.uid).collection('documents')
+        .where('name', '==', docTitle).get();
+
+      for (let i = 0; i < docsSnapshot.docs.length; i += chunkBatchSize) {
+        const batch = db.batch();
+        const batchDocs = docsSnapshot.docs.slice(i, i + chunkBatchSize);
+        for (const doc of batchDocs) {
+          batch.delete(doc.ref);
+        }
+        await batch.commit();
       }
     }
 
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    next();
-  });
+    res.json({ success: true, message: `Document "${docTitle}" and all associated vectors deleted.` });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
-  // Middlewares
-  app.use(express.json({ limit: '120mb' }));
+// API Route: Load Sample Corpus
+app.post('/api/documents/load-sample', authenticateUser, loadSampleRateLimiter, async (req: any, res) => {
+  try {
+    const { chunkSize = 800, chunkOverlap = 150 } = req.body;
 
-  // API Route: Database Health and Stats
-  app.get('/api/stats', authenticateUser, async (req: any, res) => {
-    try {
-      const chunks = await getUserChunks(req.user.uid);
-      const documentsSet = new Set(chunks.map(c => c.docTitle));
-      const docsSummary = Array.from(documentsSet).map(title => {
-        return {
-          title,
-          chunkCount: chunks.filter(c => c.docTitle === title).length
-        };
-      });
-
-      res.json({
-        totalChunks: chunks.length,
-        totalDocs: documentsSet.size,
-        documents: docsSummary,
-        hasApiKey: !!process.env.OPENROUTER_API_KEY
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // API Route: Clear current database and conversation
-  app.post('/api/clear', authenticateUser, async (req: any, res) => {
+    // Always clear before loading sample docs - prevents mixing with previously uploaded custom files
     try {
       await clearUserChunksAndDocs(req.user.uid);
-      res.json({ success: true, message: "Database vector store cleared." });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.log('[Load Sample] Cleared existing user data before loading sample corpus');
+    } catch (clearErr) {
+      console.warn('[Load Sample] Clear warning (non-fatal):', clearErr);
     }
-  });
 
-  // API Route: Delete a specific document and its chunks
-  app.post('/api/documents/delete', authenticateUser, async (req: any, res) => {
-    try {
-      const { docTitle } = req.body;
-      if (!docTitle) {
-        return res.status(400).json({ error: "Missing docTitle parameter" });
-      }
-
-      // Remove from backend in-memory cache
-      const cached = userChunksCache.get(req.user.uid);
-      if (cached) {
-        const filtered = cached.filter(c => c.docTitle !== docTitle);
-        userChunksCache.set(req.user.uid, filtered);
-      }
-
-      if (db) {
-        // Also clean up from Firestore server-side
-        // Get chunks
-        const chunksSnapshot = await db.collection('users').doc(req.user.uid).collection('chunks')
-          .where('docTitle', '==', docTitle).get();
-        
-        const chunkBatchSize = 400;
-        for (let i = 0; i < chunksSnapshot.docs.length; i += chunkBatchSize) {
-          const batch = db.batch();
-          const batchDocs = chunksSnapshot.docs.slice(i, i + chunkBatchSize);
-          for (const doc of batchDocs) {
-            batch.delete(doc.ref);
-          }
-          await batch.commit();
-        }
-
-        // Get documents
-        const docsSnapshot = await db.collection('users').doc(req.user.uid).collection('documents')
-          .where('name', '==', docTitle).get();
-
-        for (let i = 0; i < docsSnapshot.docs.length; i += chunkBatchSize) {
-          const batch = db.batch();
-          const batchDocs = docsSnapshot.docs.slice(i, i + chunkBatchSize);
-          for (const doc of batchDocs) {
-            batch.delete(doc.ref);
-          }
-          await batch.commit();
-        }
-      }
-
-      res.json({ success: true, message: `Document "${docTitle}" and all associated vectors deleted.` });
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+    // Chunk all documents
+    const allChunks: { text: string; docTitle: string }[] = [];
+    for (const doc of SAMPLE_DOCS) {
+      const chunks = chunkText(doc.text, doc.title, chunkSize, chunkOverlap);
+      allChunks.push(...chunks);
     }
-  });
 
-  // API Route: Load Sample Corpus
-  app.post('/api/documents/load-sample', authenticateUser, loadSampleRateLimiter, async (req: any, res) => {
-    try {
-      const { chunkSize = 800, chunkOverlap = 150 } = req.body;
+    if (allChunks.length === 0) {
+      return res.json({ success: true, count: 0 });
+    }
 
-      // Always clear before loading sample docs - prevents mixing with previously uploaded custom files
+    // Generate embeddings in batches of 50 to avoid API rate limits
+    const indexChunks: Chunk[] = [];
+    const batchSize = 50;
+
+    for (let i = 0; i < allChunks.length; i += batchSize) {
+      const batch = allChunks.slice(i, i + batchSize);
+      let embeddingsList: any[] = [];
+
       try {
-        await clearUserChunksAndDocs(req.user.uid);
-        console.log('[Load Sample] Cleared existing user data before loading sample corpus');
-      } catch (clearErr) {
-        console.warn('[Load Sample] Clear warning (non-fatal):', clearErr);
+        embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
+      } catch (embErr: any) {
+        console.warn("Jina AI embedding calculation failed during sample load, using zero-vector fallback:", embErr.message);
+        embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
       }
 
-      // Chunk all documents
-      const allChunks: { text: string; docTitle: string }[] = [];
-      for (const doc of SAMPLE_DOCS) {
-        const chunks = chunkText(doc.text, doc.title, chunkSize, chunkOverlap);
-        allChunks.push(...chunks);
+      for (let j = 0; j < batch.length; j++) {
+        const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
+        indexChunks.push({
+          id: `chunk-doc-${i + j}-${Date.now()}`,
+          docTitle: batch[j].docTitle,
+          text: batch[j].text,
+          embedding: embValues
+        });
       }
+    }
 
-      if (allChunks.length === 0) {
-        return res.json({ success: true, count: 0 });
-      }
+    // Save user chunks & documents metadata to Firestore securely (handled gracefully, returns data to client for robust client-side backup save)
+    try {
+      await saveUserChunksToDb(req.user.uid, indexChunks);
+    } catch (err) {
+      console.warn("Server-side save chunks failed, falling back to client-side write:", err);
+    }
 
-      // Generate embeddings in batches of 50 to avoid API rate limits
-      const indexChunks: Chunk[] = [];
-      const batchSize = 50;
+    const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
+    const docMetas = uniqueDocs.map(title => ({
+      id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
+      name: title,
+      chunkCount: indexChunks.filter(c => c.docTitle === title).length,
+      size: SAMPLE_DOCS.find(d => d.title === title)?.text.length || 1000
+    }));
 
-      for (let i = 0; i < allChunks.length; i += batchSize) {
-        const batch = allChunks.slice(i, i + batchSize);
-        let embeddingsList: any[] = [];
+    try {
+      await saveUserDocumentsToDb(req.user.uid, docMetas);
+    } catch (err) {
+      console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
+    }
 
+    res.json({
+      success: true,
+      count: indexChunks.length,
+      chunks: indexChunks,
+      docMetas: docMetas
+    });
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API Route: Ingest Custom Uploaded Text Files
+app.post('/api/documents/upload', authenticateUser, uploadRateLimiter, async (req: any, res) => {
+  try {
+    const { files, chunkSize = 800, chunkOverlap = 150, append = true } = req.body;
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: "Missing uploaded files array." });
+    }
+
+    if (!append) {
+      vectorDatabase = [];
+    }
+
+    const allChunks: { text: string; docTitle: string }[] = [];
+    for (const file of files) {
+      const title = file.title || "Untitled Ingestion";
+      const extension = title.split('.').pop()?.toLowerCase() || '';
+      let text = file.text || "";
+
+      if (file.base64) {
         try {
-          embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
-        } catch (embErr: any) {
-          console.warn("Jina AI embedding calculation failed during sample load, using zero-vector fallback:", embErr.message);
-          embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
-        }
+          const parts = file.base64.split(',');
+          const rawBase64 = parts.length > 1 ? parts[1] : file.base64;
 
-        for (let j = 0; j < batch.length; j++) {
-          const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
-          indexChunks.push({
-            id: `chunk-doc-${i + j}-${Date.now()}`,
-            docTitle: batch[j].docTitle,
-            text: batch[j].text,
-            embedding: embValues
-          });
-        }
-      }
+          if (!rawBase64 || rawBase64.trim() === "") {
+            return res.status(400).json({ error: `The uploaded file "${title}" is empty or has a corrupted data stream.` });
+          }
 
-      // Save user chunks & documents metadata to Firestore securely (handled gracefully, returns data to client for robust client-side backup save)
-      try {
-        await saveUserChunksToDb(req.user.uid, indexChunks);
-      } catch (err) {
-        console.warn("Server-side save chunks failed, falling back to client-side write:", err);
-      }
+          const lowerTitle = title.toLowerCase();
 
-      const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
-      const docMetas = uniqueDocs.map(title => ({
-        id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
-        name: title,
-        chunkCount: indexChunks.filter(c => c.docTitle === title).length,
-        size: SAMPLE_DOCS.find(d => d.title === title)?.text.length || 1000
-      }));
-      
-      try {
-        await saveUserDocumentsToDb(req.user.uid, docMetas);
-      } catch (err) {
-        console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
-      }
-
-      res.json({ 
-        success: true, 
-        count: indexChunks.length,
-        chunks: indexChunks,
-        docMetas: docMetas
-      });
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // API Route: Ingest Custom Uploaded Text Files
-  app.post('/api/documents/upload', authenticateUser, uploadRateLimiter, async (req: any, res) => {
-    try {
-      const { files, chunkSize = 800, chunkOverlap = 150, append = true } = req.body;
-      if (!files || !Array.isArray(files) || files.length === 0) {
-        return res.status(400).json({ error: "Missing uploaded files array." });
-      }
-
-      if (!append) {
-        vectorDatabase = [];
-      }
-
-      const allChunks: { text: string; docTitle: string }[] = [];
-      for (const file of files) {
-        const title = file.title || "Untitled Ingestion";
-        const extension = title.split('.').pop()?.toLowerCase() || '';
-        let text = file.text || "";
-
-        if (file.base64) {
-          try {
-            const parts = file.base64.split(',');
-            const rawBase64 = parts.length > 1 ? parts[1] : file.base64;
-
-            if (!rawBase64 || rawBase64.trim() === "") {
-              return res.status(400).json({ error: `The uploaded file "${title}" is empty or has a corrupted data stream.` });
-            }
-
-            const lowerTitle = title.toLowerCase();
-
-            if (lowerTitle.includes('demo_video') || lowerTitle === 'demo_video.mp4') {
-              console.log(`Serving preloaded high-fidelity transcription for demo video: ${title}`);
-              text = `This is the official demo video for GroundLink AI, a cutting-edge Retrieval-Augmented Generation (RAG) platform. The video showcases how users can easily drag and drop text files, PDFs, Microsoft Word documents, PowerPoint presentations, and spreadsheets directly into the platform.
+          if (lowerTitle.includes('demo_video') || lowerTitle === 'demo_video.mp4') {
+            console.log(`Serving preloaded high-fidelity transcription for demo video: ${title}`);
+            text = `This is the official demo video for GroundLink AI, a cutting-edge Retrieval-Augmented Generation (RAG) platform. The video showcases how users can easily drag and drop text files, PDFs, Microsoft Word documents, PowerPoint presentations, and spreadsheets directly into the platform.
 Key features highlighted in the demo include:
 1. Dynamic Document Indexing: Real-time chunking and high-performance embedding generation.
 2. Local Multi-Format Parsing: Direct extraction from PDFs, Word docs, slides, and spreadsheets - no external API required for extraction.
 3. Interactive Source Citation: Clicking citation indicators in the chat instantly reveals the source passage in the sidebar.
 4. Custom System Prompts: Creating tailored personas, language styles, and response structures.
 The narrator explains how this solves common LLM problems like knowledge cutoffs and hallucinations, ensuring all answers are 100% grounded in facts.`;
-            } else if (lowerTitle.includes('demo_image') || lowerTitle === 'demo_image.jpg' || lowerTitle === 'demo_image.png') {
-              console.log(`Serving preloaded description for demo image: ${title}`);
-              text = `This diagram illustrates the System Architecture of GroundLink AI's RAG system.
+          } else if (lowerTitle.includes('demo_image') || lowerTitle === 'demo_image.jpg' || lowerTitle === 'demo_image.png') {
+            console.log(`Serving preloaded description for demo image: ${title}`);
+            text = `This diagram illustrates the System Architecture of GroundLink AI's RAG system.
 The architecture is structured as follows:
 - Document Ingestion: Users upload PDFs, Word docs, PowerPoint slides, spreadsheets, and plain text files. The system uses local parsers (pdf-parse, mammoth, JSZip, SheetJS) to extract full textual context with zero external API dependency.
 - Text Chunking: Extracted texts are sliced into overlapping chunks (default: 800 characters, 150 overlap).
@@ -1328,352 +1328,346 @@ The architecture is structured as follows:
 - Vector Database Indexing: These vectors are cached in a local high-speed in-memory vector database.
 - Query Flow: When a user asks a question, the query is embedded, and cosine similarity is run against cached vectors.
 - Response Augmentation: The matched chunks are retrieved, formatted as grounded context, and sent to Groq's 'openai/gpt-oss-120b' model alongside the user query to produce a complete answer with citation links.`;
-            } else if (lowerTitle.includes('demo_document') || lowerTitle === 'demo_document.pdf') {
-              console.log(`Serving preloaded manual for demo document: ${title}`);
-              text = `Welcome to the GroundLink AI User Guide and Operations Manual.
+          } else if (lowerTitle.includes('demo_document') || lowerTitle === 'demo_document.pdf') {
+            console.log(`Serving preloaded manual for demo document: ${title}`);
+            text = `Welcome to the GroundLink AI User Guide and Operations Manual.
 This document provides details on configuring and optimizing the grounded retrieval platform.
 1. Document Formats: Supported formats include Plain Text, Markdown, Adobe PDF, Microsoft Word (DOC/DOCX), PowerPoint (PPT/PPTX), and Spreadsheets (XLS/XLSX/CSV).
 2. Key Settings:
    - System Instructions: Set active prompts to adjust tone, target language, or response format.
 3. Voice Typing: Use the built-in microphone for instant voice input. Make sure to open the application in a new tab if running inside restricted sandboxed frame containers.
 4. Citation Matching: When reading a reply, click numeric citation indicators (such as [1]) to render the exact source text passage inside the verification panel.`;
-            } else if (extension === 'txt' || extension === 'md') {
-              // Decode text and markdown files instantly on the server-side - no API needed
-              text = Buffer.from(rawBase64, 'base64').toString('utf8');
-            } else if (extension === 'pdf') {
-              let parserInstance: PDFParse | null = null;
-              try {
-                console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
-                const dataBuffer = Buffer.from(rawBase64, 'base64');
-                parserInstance = new pdfParse{ data: new Uint8Array(dataBuffer) });
-                const pdfData = await parserInstance.getText();
-                text = pdfData.text || "";
-                console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
-                if (text.trim().length === 0) {
-                  throw new Error("No text content could be parsed from the PDF.");
-                }
-              } catch (pdfErr: any) {
-                console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
-                text = "";
-              } finally {
-                if (parserInstance) {
-                  try {
-                    await parserInstance.destroy();
-                  } catch (destroyErr) {
-                    console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
-                  }
-                }
-              }
-            } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
-              console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
+          } else if (extension === 'txt' || extension === 'md') {
+            // Decode text and markdown files instantly on the server-side - no API needed
+            text = Buffer.from(rawBase64, 'base64').toString('utf8');
+          } else if (extension === 'pdf') {
+            let parserInstance: PDFParse | null = null;
+            try {
+              console.info(`[Local PDF Parser] Parsing PDF document: ${title}`);
               const dataBuffer = Buffer.from(rawBase64, 'base64');
-              const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
-              if (extractedText && extractedText.trim() !== "") {
-                console.info(`[Local Document Parser] Successfully parsed ${extractedText.length} characters from ${title}`);
-                text = extractedText;
-              } else if (!supported) {
-                text = extractedText || `[Unsupported File Type] The file "${title}" (.${extension}) could not be parsed.`;
-              } else {
-                text = `Document File: "${title}"\n- Format: ${extension.toUpperCase()}\n- Description: File was processed but no extractable text content was found (the file may be empty or image-only).`;
-              }
-            } else {
-              text = `[Unsupported File Type] The file "${title}" (.${extension}) is not a supported format. GroundLink AI currently supports: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files.`;
-            }
+              parserInstance = new pdfParse{ data: new Uint8Array(dataBuffer) });
+const pdfData = await parserInstance.getText();
+text = pdfData.text || "";
+console.info(`[Local PDF Parser] Successfully parsed ${text.length} characters from ${title}`);
+if (text.trim().length === 0) {
+  throw new Error("No text content could be parsed from the PDF.");
+}
+              } catch (pdfErr: any) {
+  console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
+  text = "";
+} finally {
+  if (parserInstance) {
+    try {
+      await parserInstance.destroy();
+    } catch (destroyErr) {
+      console.warn(`[Local PDF Parser] Cleanup failed:`, destroyErr);
+    }
+  }
+}
+            } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
+  console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
+  const dataBuffer = Buffer.from(rawBase64, 'base64');
+  const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
+  if (extractedText && extractedText.trim() !== "") {
+    console.info(`[Local Document Parser] Successfully parsed ${extractedText.length} characters from ${title}`);
+    text = extractedText;
+  } else if (!supported) {
+    text = extractedText || `[Unsupported File Type] The file "${title}" (.${extension}) could not be parsed.`;
+  } else {
+    text = `Document File: "${title}"\n- Format: ${extension.toUpperCase()}\n- Description: File was processed but no extractable text content was found (the file may be empty or image-only).`;
+  }
+} else {
+  text = `[Unsupported File Type] The file "${title}" (.${extension}) is not a supported format. GroundLink AI currently supports: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files.`;
+}
           } catch (err: any) {
-            console.error(`Document parser error on ${title}:`, err);
-            console.warn(`Fallback document index created for ${title} due to extraction error.`);
-            text = `Document File: "${title}"
+  console.error(`Document parser error on ${title}:`, err);
+  console.warn(`Fallback document index created for ${title} due to extraction error.`);
+  text = `Document File: "${title}"
 - Format: ${extension.toUpperCase()}
 - Description: Custom uploaded file "${title}" added to GroundLink AI Knowledge Base.
 - Content Summary: Registered and indexed for document search and RAG contextual retrieval. Text extraction encountered an error: ${err.message || 'unknown error'}.`;
-          }
+}
         }
 
-        if (text.trim().length === 0) continue;
+if (text.trim().length === 0) continue;
 
-        const chunks = chunkText(text, title, chunkSize, chunkOverlap);
-        allChunks.push(...chunks);
+const chunks = chunkText(text, title, chunkSize, chunkOverlap);
+allChunks.push(...chunks);
       }
 
-      if (allChunks.length === 0) {
-        return res.json({ success: true, count: 0 });
-      }
+if (allChunks.length === 0) {
+  return res.json({ success: true, count: 0 });
+}
 
-      // Generate Embeddings
-      const indexChunks: Chunk[] = [];
-      const batchSize = 50;
+// Generate Embeddings
+const indexChunks: Chunk[] = [];
+const batchSize = 50;
 
-      for (let i = 0; i < allChunks.length; i += batchSize) {
-        const batch = allChunks.slice(i, i + batchSize);
-        let embeddingsList: any[] = [];
+for (let i = 0; i < allChunks.length; i += batchSize) {
+  const batch = allChunks.slice(i, i + batchSize);
+  let embeddingsList: any[] = [];
 
-        try {
-          embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
-        } catch (embErr: any) {
-          console.warn("Jina AI embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
-          embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
-        }
+  try {
+    embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
+  } catch (embErr: any) {
+    console.warn("Jina AI embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
+    embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
+  }
 
-        for (let j = 0; j < batch.length; j++) {
-          const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
-          indexChunks.push({
-            id: `chunk-custom-${Date.now()}-${i + j}`,
-            docTitle: batch[j].docTitle,
-            text: batch[j].text,
-            embedding: embValues
-          });
-        }
-      }
+  for (let j = 0; j < batch.length; j++) {
+    const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
+    indexChunks.push({
+      id: `chunk-custom-${Date.now()}-${i + j}`,
+      docTitle: batch[j].docTitle,
+      text: batch[j].text,
+      embedding: embValues
+    });
+  }
+}
 
-      if (!append) {
-        try {
-          await clearUserChunksAndDocs(req.user.uid);
-        } catch (err) {
-          console.warn("Server-side clear failed, falling back to client-side cleanup:", err);
-        }
-      }
-      try {
-        await saveUserChunksToDb(req.user.uid, indexChunks);
-      } catch (err) {
-        console.warn("Server-side save chunks failed, falling back to client-side write:", err);
-      }
+if (!append) {
+  try {
+    await clearUserChunksAndDocs(req.user.uid);
+  } catch (err) {
+    console.warn("Server-side clear failed, falling back to client-side cleanup:", err);
+  }
+}
+try {
+  await saveUserChunksToDb(req.user.uid, indexChunks);
+} catch (err) {
+  console.warn("Server-side save chunks failed, falling back to client-side write:", err);
+}
 
-      const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
-      const docMetas = uniqueDocs.map(title => ({
-        id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
-        name: title,
-        chunkCount: indexChunks.filter(c => c.docTitle === title).length,
-        size: files.find((f: any) => f.title === title)?.text?.length || 1000
-      }));
-      
-      try {
-        await saveUserDocumentsToDb(req.user.uid, docMetas);
-      } catch (err) {
-        console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
-      }
+const uniqueDocs = Array.from(new Set(indexChunks.map(c => c.docTitle)));
+const docMetas = uniqueDocs.map(title => ({
+  id: `doc-${title.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}`,
+  name: title,
+  chunkCount: indexChunks.filter(c => c.docTitle === title).length,
+  size: files.find((f: any) => f.title === title)?.text?.length || 1000
+}));
 
-      res.json({ 
-        success: true, 
-        count: indexChunks.length,
-        chunks: indexChunks,
-        docMetas: docMetas
-      });
+try {
+  await saveUserDocumentsToDb(req.user.uid, docMetas);
+} catch (err) {
+  console.warn("Server-side save docMetas failed, falling back to client-side write:", err);
+}
+
+res.json({
+  success: true,
+  count: indexChunks.length,
+  chunks: indexChunks,
+  docMetas: docMetas
+});
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
-    }
+  console.error(err);
+  res.status(500).json({ error: err.message });
+}
   });
 
-  // API Route: Query the vector store and generate RAG responses
-  app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res) => {
-    try {
-      const {
-        query,
-        temperature = 0.3,
-        history = [],
-        image = null,
-        customSystemInstruction = "",
-        chatAttachedFiles = []
-      } = req.body;
+// API Route: Query the vector store and generate RAG responses
+app.post('/api/query', authenticateUser, queryRateLimiter, async (req: any, res) => {
+  try {
+    const {
+      query,
+      temperature = 0.3,
+      history = [],
+      image = null,
+      customSystemInstruction = "",
+      chatAttachedFiles = []
+    } = req.body;
 
-      if (!query || query.trim() === '') {
-        return res.status(400).json({ error: 'Query parameter is required' });
-      }
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: 'Query parameter is required' });
+    }
 
-      // No hard key requirement - gracefully degrades to local heuristic retrieval/generation
-      // when GROQ_API_KEY / JINA_API_KEY aren't configured.
+    // No hard key requirement - gracefully degrades to local heuristic retrieval/generation
+    // when GROQ_API_KEY / JINA_API_KEY aren't configured.
 
-      // 1. Use ONLY client-sent chunks - server never fetches from Firestore
-      // This prevents stale/mixed data from old uploads bleeding into responses
-      let topMatches: any[] = [];
-      const userChunks = (req.body.userChunks && Array.isArray(req.body.userChunks))
-        ? req.body.userChunks
-        : [];
+    // 1. Use ONLY client-sent chunks - server never fetches from Firestore
+    // This prevents stale/mixed data from old uploads bleeding into responses
+    let topMatches: any[] = [];
+    const userChunks = (req.body.userChunks && Array.isArray(req.body.userChunks))
+      ? req.body.userChunks
+      : [];
 
-      const isGeneralGreetingOrShort = query.trim().toLowerCase().match(/^(hi|hello|hey|hola|greetings|howdy|good morning|good afternoon|good evening|who are you|what is this|how does this work|clear|reset|help)\??$/);
-      const hasChatAttachedFiles = chatAttachedFiles && Array.isArray(chatAttachedFiles) && chatAttachedFiles.length > 0;
+    const isGeneralGreetingOrShort = query.trim().toLowerCase().match(/^(hi|hello|hey|hola|greetings|howdy|good morning|good afternoon|good evening|who are you|what is this|how does this work|clear|reset|help)\??$/);
+    const hasChatAttachedFiles = chatAttachedFiles && Array.isArray(chatAttachedFiles) && chatAttachedFiles.length > 0;
 
-      const hasImageAttached = image && typeof image === 'string' && image.length > 0;
-      if (userChunks.length > 0 && !hasChatAttachedFiles && !hasImageAttached && !isGeneralGreetingOrShort) {
-        try {
-          // Embed the query via Jina AI (task: 'query' improves retrieval quality)
-          const embeddingsList = await getJinaEmbedding([query], 'query');
-          const queryVector = embeddingsList[0];
+    const hasImageAttached = image && typeof image === 'string' && image.length > 0;
+    if (userChunks.length > 0 && !hasChatAttachedFiles && !hasImageAttached && !isGeneralGreetingOrShort) {
+      try {
+        // Embed the query via Jina AI (task: 'query' improves retrieval quality)
+        const embeddingsList = await getJinaEmbedding([query], 'query');
+        const queryVector = embeddingsList[0];
 
-          if (queryVector && queryVector.length > 0) {
-            const scoredChunks = userChunks.map(chunk => {
-              const score = cosineSimilarity(queryVector, chunk.embedding);
-              return {
-                id: chunk.id,
-                docTitle: chunk.docTitle,
-                text: chunk.text,
-                score: score,
-              };
-            });
-
-            scoredChunks.sort((a, b) => b.score - a.score);
-            const relevantMatches = scoredChunks.filter(c => c.score >= 0.15).slice(0, 6);
-            topMatches = relevantMatches;
-          }
-        } catch (embedErr) {
-          console.error("Embedding lookup failed, executing robust keyword-based fallback:", embedErr);
-        }
-
-        // Hybrid/Keyword Fallback: if vector search yielded zero results or failed
-        if (topMatches.length === 0) {
-          console.log("[Keyword Retriever] Running keyword fallback match...");
-          const stopWords = new Set(['this', 'is', 'a', 'an', 'the', 'of', 'and', 'or', 'in', 'to', 'for', 'it', 'on', 'with', 'as', 'at', 'by', 'be', 'are', 'was', 'were', 'my', 'your', 'what', 'how', 'who', 'where', 'when', 'why', 'good', 'looking', 'can', 'you', 'me', 'file', 'tell', 'show', 'please', 'help']);
-          const queryTerms = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
-          
-          if (queryTerms.length > 0) {
-            const scoredChunks = userChunks.map(chunk => {
-              const chunkTextLower = chunk.text.toLowerCase();
-              let score = 0;
-              for (const term of queryTerms) {
-                if (chunkTextLower.includes(term)) {
-                  score += 1.0;
-                }
-              }
-              const finalScore = score / (1 + Math.log(1 + chunk.text.length) * 0.1);
-              return {
-                id: chunk.id,
-                docTitle: chunk.docTitle,
-                text: chunk.text,
-                score: finalScore,
-              };
-            });
-            scoredChunks.sort((a, b) => b.score - a.score);
-            topMatches = scoredChunks.filter(c => c.score >= 1.0).slice(0, 5);
-            console.log(`[Keyword Retriever] Retrieved ${topMatches.length} matches via keyword fallback!`);
-          }
-        }
-
-        // Deduplicate topMatches to prevent duplicate citation indices [1], [2] pointing to identical or overlapping text passages!
-        const deduplicatedMatches: any[] = [];
-        for (const match of topMatches) {
-          const normText = match.text.trim().toLowerCase();
-          const isDup = deduplicatedMatches.some(m => {
-            const existingNorm = m.text.trim().toLowerCase();
-            return (m.docTitle === match.docTitle) && (
-              existingNorm === normText ||
-              existingNorm.includes(normText) ||
-              normText.includes(existingNorm)
-            );
+        if (queryVector && queryVector.length > 0) {
+          const scoredChunks = userChunks.map(chunk => {
+            const score = cosineSimilarity(queryVector, chunk.embedding);
+            return {
+              id: chunk.id,
+              docTitle: chunk.docTitle,
+              text: chunk.text,
+              score: score,
+            };
           });
-          if (!isDup) {
-            deduplicatedMatches.push(match);
-          }
+
+          scoredChunks.sort((a, b) => b.score - a.score);
+          const relevantMatches = scoredChunks.filter(c => c.score >= 0.15).slice(0, 6);
+          topMatches = relevantMatches;
         }
-        topMatches = deduplicatedMatches;
+      } catch (embedErr) {
+        console.error("Embedding lookup failed, executing robust keyword-based fallback:", embedErr);
       }
 
-      // 2. Process chat attached files locally (no external API) - extracted straight into text context
-      const extractedTextBlocks: { name: string; content: string }[] = [];
+      // Hybrid/Keyword Fallback: if vector search yielded zero results or failed
+      if (topMatches.length === 0) {
+        console.log("[Keyword Retriever] Running keyword fallback match...");
+        const stopWords = new Set(['this', 'is', 'a', 'an', 'the', 'of', 'and', 'or', 'in', 'to', 'for', 'it', 'on', 'with', 'as', 'at', 'by', 'be', 'are', 'was', 'were', 'my', 'your', 'what', 'how', 'who', 'where', 'when', 'why', 'good', 'looking', 'can', 'you', 'me', 'file', 'tell', 'show', 'please', 'help']);
+        const queryTerms = query.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
 
-      if (chatAttachedFiles && Array.isArray(chatAttachedFiles)) {
-        for (const file of chatAttachedFiles) {
-          if (!file.base64) continue;
-
-          let data = file.base64;
-
-          // Clean base64 prefix if present using bulletproof comma split
-          if (file.base64.startsWith('data:')) {
-            const commaIndex = file.base64.indexOf(',');
-            if (commaIndex !== -1) {
-              data = file.base64.substring(commaIndex + 1);
-            }
-          }
-
-          const ext = file.name.split('.').pop()?.toLowerCase() || '';
-
-          // Plain text-based files - decode directly
-          if (['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml'].includes(ext)) {
-            try {
-              const decoded = Buffer.from(data, 'base64').toString('utf8');
-              extractedTextBlocks.push({ name: file.name, content: decoded });
-            } catch (err) {
-              console.error(`Failed to decode text file ${file.name}:`, err);
-            }
-            continue;
-          }
-
-          const buffer = Buffer.from(data, 'base64');
-
-          // PDF - dedicated local parser
-          if (ext === 'pdf') {
-            let parserInstance: PDFParse | null = null;
-            try {
-              parserInstance = new pdfParse{ data: new Uint8Array(buffer) });
-              const pdfData = await parserInstance.getText();
-              const pdfText = (pdfData.text || '').trim();
-              extractedTextBlocks.push({
-                name: file.name,
-                content: pdfText || '[No extractable text found in this PDF.]'
-              });
-            } catch (err: any) {
-              console.error(`Failed to parse attached PDF ${file.name}:`, err.message || err);
-              extractedTextBlocks.push({ name: file.name, content: '[Failed to parse this PDF.]' });
-            } finally {
-              if (parserInstance) {
-                try { await parserInstance.destroy(); } catch { /* no-op */ }
+        if (queryTerms.length > 0) {
+          const scoredChunks = userChunks.map(chunk => {
+            const chunkTextLower = chunk.text.toLowerCase();
+            let score = 0;
+            for (const term of queryTerms) {
+              if (chunkTextLower.includes(term)) {
+                score += 1.0;
               }
             }
-            continue;
-          }
+            const finalScore = score / (1 + Math.log(1 + chunk.text.length) * 0.1);
+            return {
+              id: chunk.id,
+              docTitle: chunk.docTitle,
+              text: chunk.text,
+              score: finalScore,
+            };
+          });
+          scoredChunks.sort((a, b) => b.score - a.score);
+          topMatches = scoredChunks.filter(c => c.score >= 1.0).slice(0, 5);
+          console.log(`[Keyword Retriever] Retrieved ${topMatches.length} matches via keyword fallback!`);
+        }
+      }
 
-          // DOC/DOCX/PPT/PPTX/XLS/XLSX - local parsers, no LLM/vision API
-          if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext)) {
-            const { text: extractedText, supported } = await extractLocalFileText(ext, buffer);
+      // Deduplicate topMatches to prevent duplicate citation indices [1], [2] pointing to identical or overlapping text passages!
+      const deduplicatedMatches: any[] = [];
+      for (const match of topMatches) {
+        const normText = match.text.trim().toLowerCase();
+        const isDup = deduplicatedMatches.some(m => {
+          const existingNorm = m.text.trim().toLowerCase();
+          return (m.docTitle === match.docTitle) && (
+            existingNorm === normText ||
+            existingNorm.includes(normText) ||
+            normText.includes(existingNorm)
+          );
+        });
+        if (!isDup) {
+          deduplicatedMatches.push(match);
+        }
+      }
+      topMatches = deduplicatedMatches;
+    }
+
+    // 2. Process chat attached files locally (no external API) - extracted straight into text context
+    const extractedTextBlocks: { name: string; content: string }[] = [];
+
+    if (chatAttachedFiles && Array.isArray(chatAttachedFiles)) {
+      for (const file of chatAttachedFiles) {
+        if (!file.base64) continue;
+
+        let data = file.base64;
+
+        // Clean base64 prefix if present using bulletproof comma split
+        if (file.base64.startsWith('data:')) {
+          const commaIndex = file.base64.indexOf(',');
+          if (commaIndex !== -1) {
+            data = file.base64.substring(commaIndex + 1);
+          }
+        }
+
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+        // Plain text-based files - decode directly
+        if (['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml'].includes(ext)) {
+          try {
+            const decoded = Buffer.from(data, 'base64').toString('utf8');
+            extractedTextBlocks.push({ name: file.name, content: decoded });
+          } catch (err) {
+            console.error(`Failed to decode text file ${file.name}:`, err);
+          }
+          continue;
+        }
+
+        const buffer = Buffer.from(data, 'base64');
+
+        // PDF - dedicated local parser
+        if (ext === 'pdf') {
+          try {
+            const pdfData = await pdfParse(buffer);
+            const pdfText = (pdfData.text || '').trim();
             extractedTextBlocks.push({
               name: file.name,
-              content: extractedText && extractedText.trim() !== ''
-                ? extractedText
-                : (supported ? '[No extractable text found in this file.]' : `[Unsupported or unreadable .${ext} file.]`)
+              content: pdfText || '[No extractable text found in this PDF.]'
             });
-            continue;
+          } catch (err: any) {
+            console.error(`Failed to parse attached PDF ${file.name}:`, err.message || err);
+            extractedTextBlocks.push({ name: file.name, content: '[Failed to parse this PDF.]' });
           }
+          continue;
+        }
 
-          // Anything else (images, video, unknown binary) - not supported without a vision/video model
-          console.info(`Skipping unsupported chat-attached file type: ${file.name} (.${ext})`);
+        // DOC/DOCX/PPT/PPTX/XLS/XLSX - local parsers, no LLM/vision API
+        if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext)) {
+          const { text: extractedText, supported } = await extractLocalFileText(ext, buffer);
           extractedTextBlocks.push({
             name: file.name,
-            content: `[Unsupported File Type] GroundLink AI currently supports PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files. The file type ".${ext}" cannot be analyzed.`
+            content: extractedText && extractedText.trim() !== ''
+              ? extractedText
+              : (supported ? '[No extractable text found in this file.]' : `[Unsupported or unreadable .${ext} file.]`)
           });
+          continue;
         }
-      }
 
-      // Note: image analysis via camera capture is not available - Groq's text models here
-      // don't support vision, and Gemini has been removed. Surface this honestly if attempted.
-      const hasCameraImage = Boolean(image && typeof image === 'string' && image.length > 0);
-      if (hasCameraImage) {
+        // Anything else (images, video, unknown binary) - not supported without a vision/video model
+        console.info(`Skipping unsupported chat-attached file type: ${file.name} (.${ext})`);
         extractedTextBlocks.push({
-          name: 'Camera Capture',
-          content: '[Unsupported] Image analysis is not currently available in this deployment.'
+          name: file.name,
+          content: `[Unsupported File Type] GroundLink AI currently supports PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files. The file type ".${ext}" cannot be analyzed.`
         });
       }
+    }
 
-      // 3. Construct prompt template with retrieved context & direct attached files
-      let promptTemplate = "";
+    // Note: image analysis via camera capture is not available - Groq's text models here
+    // don't support vision, and Gemini has been removed. Surface this honestly if attempted.
+    const hasCameraImage = Boolean(image && typeof image === 'string' && image.length > 0);
+    if (hasCameraImage) {
+      extractedTextBlocks.push({
+        name: 'Camera Capture',
+        content: '[Unsupported] Image analysis is not currently available in this deployment.'
+      });
+    }
 
-      if (topMatches.length > 0) {
-        promptTemplate += `Retrieved Context from user's global files:\n`;
-        promptTemplate += topMatches.map((match, idx) => `[${idx + 1}] Source: ${match.docTitle}\n${match.text}`).join('\n\n---\n\n');
-        promptTemplate += `\n\n---\n\n`;
-      }
+    // 3. Construct prompt template with retrieved context & direct attached files
+    let promptTemplate = "";
 
-      if (extractedTextBlocks.length > 0) {
-        promptTemplate += `Directly Attached Files Content:\n`;
-        promptTemplate += extractedTextBlocks.map(block => `[File: ${block.name}]\n${block.content}`).join('\n\n---\n\n');
-        promptTemplate += `\n\n---\n\n`;
-      }
+    if (topMatches.length > 0) {
+      promptTemplate += `Retrieved Context from user's global files:\n`;
+      promptTemplate += topMatches.map((match, idx) => `[${idx + 1}] Source: ${match.docTitle}\n${match.text}`).join('\n\n---\n\n');
+      promptTemplate += `\n\n---\n\n`;
+    }
 
-      promptTemplate += `Question: ${query}\n\n`;
-      const hasRetrieved = topMatches.length > 0;
-      const citationInstruction = hasRetrieved
-        ? `- CITATION RULES (strictly follow): The retrieved passages are numbered [1] through [5] above. After EVERY sentence that states a fact, write the number of the passage containing that fact in square brackets. Example: if sentence uses info from passage 2, end with [2]. If sentence uses passage 4, end with [4]. Different sentences must have different numbers if they come from different passages. NEVER repeat [1] for every sentence unless every fact truly comes from passage 1. NEVER write [2, 4] - always separate: [2] [4]. NO references section at end.`
-        : `- IMPORTANT: Since NO documents are loaded and NO retrieved context is provided from files, you MUST NOT include any citations like [1], [2], etc. in your response under any circumstances. Answer general questions directly and clearly without mentioning or using any document indices or citation markers.`;
+    if (extractedTextBlocks.length > 0) {
+      promptTemplate += `Directly Attached Files Content:\n`;
+      promptTemplate += extractedTextBlocks.map(block => `[File: ${block.name}]\n${block.content}`).join('\n\n---\n\n');
+      promptTemplate += `\n\n---\n\n`;
+    }
 
-      promptTemplate += `Instructions:
+    promptTemplate += `Question: ${query}\n\n`;
+    const hasRetrieved = topMatches.length > 0;
+    const citationInstruction = hasRetrieved
+      ? `- CITATION RULES (strictly follow): The retrieved passages are numbered [1] through [5] above. After EVERY sentence that states a fact, write the number of the passage containing that fact in square brackets. Example: if sentence uses info from passage 2, end with [2]. If sentence uses passage 4, end with [4]. Different sentences must have different numbers if they come from different passages. NEVER repeat [1] for every sentence unless every fact truly comes from passage 1. NEVER write [2, 4] - always separate: [2] [4]. NO references section at end.`
+      : `- IMPORTANT: Since NO documents are loaded and NO retrieved context is provided from files, you MUST NOT include any citations like [1], [2], etc. in your response under any circumstances. Answer general questions directly and clearly without mentioning or using any document indices or citation markers.`;
+
+    promptTemplate += `Instructions:
 You are GroundLink AI, an extremely intelligent, helpful, and natural document assistant.
 ${citationInstruction}
 - Under NO circumstances include any emojis in your response.
@@ -1683,59 +1677,59 @@ ${citationInstruction}
 - If the question is a general query, greeting, or question about how GroundLink works, answer directly and elegantly using your general knowledge, without referencing documents or saying they are missing.
 - Make the answer highly readable, friendly, and structured. Avoid ugly format tags.`;
 
-      // 4. Structure conversation contents history for conversational context
-      const formattedMessages: any[] = [];
-      
-      // Clean history: filter out empty items and strip any trailing user message to prevent consecutive user turns
-      const cleanHistory = (history && Array.isArray(history) ? history : []).filter((h: any) => h && h.text);
-      while (cleanHistory.length > 0 && cleanHistory[cleanHistory.length - 1].role === 'user') {
-        cleanHistory.pop();
-      }
+    // 4. Structure conversation contents history for conversational context
+    const formattedMessages: any[] = [];
 
-      for (const h of cleanHistory.slice(-6)) {
-        formattedMessages.push({
-          role: h.role === 'user' ? 'user' : 'assistant',
-          content: h.text
-        });
-      }
-
-      // Add the active user message (text-only - Groq handles text generation here)
-      formattedMessages.push({
-        role: "user",
-        content: promptTemplate
-      });
-
-
-      let systemInstruction = "You are GroundLink AI, a professional, highly intelligent document assistant. GroundLink is this RAG Document Explorer application that lets users upload custom files and query them with semantic search and inline citations. You are NOT a limousine or transport ride service, so if users ask what GroundLink is or how it works, explain that it is this RAG AI document assistant. Under NO circumstances include any emojis in your response. Speak in clean, direct, and conversational natural language. Do NOT use artificial boilerplate phrases like 'Based on the provided documents...', 'According to the context...', 'Looking at the attached file...', or 'I can confirm...'. Simply answer the question directly and elegantly.";
-      
-      if (topMatches.length > 0) {
-        systemInstruction += " CITATION RULES: Every factual claim must have an inline citation matching the passage it came from. Passage [1] = cite [1], passage [3] = cite [3]. Never use [1] for everything. Never combine as [2, 4] - write separately as [2] [4]. No references list at end. Citations go directly after the sentence, not at end of paragraph.";
-      } else {
-        systemInstruction += " Since NO files or custom document chunks are retrieved for this query, you MUST NOT use any inline citations (such as [1], [2], etc.) in your answer. Answer directly and cleanly based on your general knowledge or the attached files, with no numbered citations.";
-      }
-      if (customSystemInstruction && customSystemInstruction.trim() !== '') {
-        systemInstruction += `\n\nAdhere strictly to these user-defined Custom System Instructions:\n"${customSystemInstruction.trim()}"\nIf these custom instructions dictate a specific tone, language (such as Roman Urdu), format, or role, follow it precisely while answering.`;
-      }
-
-      // 5. Generate the response using Groq (falls back to local heuristic generator if unavailable)
-      const { text: answer, modelUsed } = await generateAnswer({
-        messages: formattedMessages,
-        systemInstruction,
-        temperature: temperature
-      });
-
-      res.json({
-        answer: answer || "No output generated.",
-        retrieved: topMatches,
-        promptUsed: promptTemplate,
-        modelUsed: modelUsed
-      });
-
-    } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+    // Clean history: filter out empty items and strip any trailing user message to prevent consecutive user turns
+    const cleanHistory = (history && Array.isArray(history) ? history : []).filter((h: any) => h && h.text);
+    while (cleanHistory.length > 0 && cleanHistory[cleanHistory.length - 1].role === 'user') {
+      cleanHistory.pop();
     }
-  });
+
+    for (const h of cleanHistory.slice(-6)) {
+      formattedMessages.push({
+        role: h.role === 'user' ? 'user' : 'assistant',
+        content: h.text
+      });
+    }
+
+    // Add the active user message (text-only - Groq handles text generation here)
+    formattedMessages.push({
+      role: "user",
+      content: promptTemplate
+    });
+
+
+    let systemInstruction = "You are GroundLink AI, a professional, highly intelligent document assistant. GroundLink is this RAG Document Explorer application that lets users upload custom files and query them with semantic search and inline citations. You are NOT a limousine or transport ride service, so if users ask what GroundLink is or how it works, explain that it is this RAG AI document assistant. Under NO circumstances include any emojis in your response. Speak in clean, direct, and conversational natural language. Do NOT use artificial boilerplate phrases like 'Based on the provided documents...', 'According to the context...', 'Looking at the attached file...', or 'I can confirm...'. Simply answer the question directly and elegantly.";
+
+    if (topMatches.length > 0) {
+      systemInstruction += " CITATION RULES: Every factual claim must have an inline citation matching the passage it came from. Passage [1] = cite [1], passage [3] = cite [3]. Never use [1] for everything. Never combine as [2, 4] - write separately as [2] [4]. No references list at end. Citations go directly after the sentence, not at end of paragraph.";
+    } else {
+      systemInstruction += " Since NO files or custom document chunks are retrieved for this query, you MUST NOT use any inline citations (such as [1], [2], etc.) in your answer. Answer directly and cleanly based on your general knowledge or the attached files, with no numbered citations.";
+    }
+    if (customSystemInstruction && customSystemInstruction.trim() !== '') {
+      systemInstruction += `\n\nAdhere strictly to these user-defined Custom System Instructions:\n"${customSystemInstruction.trim()}"\nIf these custom instructions dictate a specific tone, language (such as Roman Urdu), format, or role, follow it precisely while answering.`;
+    }
+
+    // 5. Generate the response using Groq (falls back to local heuristic generator if unavailable)
+    const { text: answer, modelUsed } = await generateAnswer({
+      messages: formattedMessages,
+      systemInstruction,
+      temperature: temperature
+    });
+
+    res.json({
+      answer: answer || "No output generated.",
+      retrieved: topMatches,
+      promptUsed: promptTemplate,
+      modelUsed: modelUsed
+    });
+
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Export for Vercel serverless
 export default app;
