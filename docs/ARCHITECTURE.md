@@ -13,11 +13,13 @@ Browser (React 19 SPA)
        v
 Vercel Serverless Function (api/index.ts)
        |
-       |-- Groq API           (llama-3.3-70b, primary LLM)
-       |-- Gemini API         (gemini-2.0-flash, fallback + multimodal)
-       |-- Gemini Embedding   (gemini-embedding-2-preview, vector embeddings)
+       |-- Groq API           (openai/gpt-oss-120b, chat generation)
+       |-- Jina AI          (jina-embeddings-v3, vector embeddings)
        |-- Firestore          (chunk and chat persistence)
        |-- pdf-parse          (local PDF text extraction, no API cost)
+       |-- mammoth            (local DOCX/DOC text extraction, no API cost)
+       |-- JSZip              (local PPTX text extraction, no API cost)
+       |-- xlsx (SheetJS)     (local XLSX/CSV text extraction, no API cost)
 ```
 
 ---
@@ -30,11 +32,12 @@ Vercel Serverless Function (api/index.ts)
 File Upload (base64)
        |
        v
-Text Extraction
+Text Extraction (all local, zero external API calls)
   Plain text / Markdown    direct UTF-8 decode
-  PDF                      pdf-parse (local, free, instant)
-  DOCX / PPTX / images     Gemini 2.0 Flash multimodal extraction
-  Video                    Gemini 2.0 Flash transcription
+  PDF                      pdf-parse
+  DOCX / DOC               mammoth / word-extractor
+  PPTX                     JSZip raw slide XML parsing
+  XLSX / XLS / CSV         xlsx (SheetJS)
        |
        v
 Sentence-aware Chunker
@@ -44,7 +47,7 @@ Sentence-aware Chunker
        |
        v
 Batch Embedding
-  Model         Gemini Embedding API (gemini-embedding-2-preview)
+  Model         Jina AI (jina-embeddings-v3, input_type: document)
   Batch size    50 chunks per request
        |
        v
@@ -59,7 +62,7 @@ Storage
 User query
        |
        v
-Query Embedding (same Gemini model)
+Query Embedding (Jina AI, input_type: query)
        |
        v
 Cosine Similarity vs all user chunks
@@ -76,8 +79,8 @@ Context Assembly
        |
        v
 LLM Generation
-  Primary       Groq (llama-3.3-70b) — fast, free, 70B parameters
-  Fallback      Gemini 2.0 Flash
+  Primary       Groq (openai/gpt-oss-120b) - fast, free tier
+  Fallback      Local heuristic generator (no API key required)
        |
        v
 Response with inline citations [1] [2]
@@ -91,7 +94,7 @@ Response with inline citations [1] [2]
 ```
 groundlink-ai/
   api/
-    index.ts              Vercel serverless function — all Express routes
+    index.ts              Vercel serverless function - all Express routes
   src/
     App.tsx               Full React SPA (auth, chat, sidebars, citations)
     firebase.ts           Firebase client SDK init from VITE_ env vars
@@ -105,7 +108,7 @@ groundlink-ai/
   index.html              Vite HTML entry point
   vite.config.ts          Vite config with /api proxy for local dev
   vercel.json             Routes /api/* to serverless, /* to static dist
-  dev-server.ts           Local dev wrapper — starts Express on port 3000
+  dev-server.ts           Local dev wrapper - starts Express on port 3000
   package.json
   tsconfig.json
   firestore.rules

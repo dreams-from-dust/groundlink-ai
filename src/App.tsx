@@ -1412,7 +1412,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
 
       const data = await res.json();
       if (res.ok) {
-        // Client-side Firestore sync — APPEND only, never delete existing chunks
+        // Client-side Firestore sync - APPEND only, never delete existing chunks
         if (auth.currentUser && data.chunks && data.docMetas) {
           const uid = auth.currentUser.uid;
           try {
@@ -2840,7 +2840,9 @@ The cloud intelligence service is currently experiencing exceptionally high dema
   }
 
   return (
-    <div className={`h-screen max-h-screen w-full transition-colors duration-300 font-sans flex flex-col overflow-hidden ${
+    <div
+      style={{ height: '100dvh', maxHeight: '100dvh' }}
+      className={`h-screen max-h-screen w-full transition-colors duration-300 font-sans flex flex-col overflow-hidden ${
       theme === 'dark' ? 'bg-[#0f1013] text-[#ebedf2]' : 'bg-[#f8fafc] text-[#1e1f24]'
     }`}>
 
@@ -2860,7 +2862,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
         theme === 'dark' ? 'bg-[#171717] border-zinc-800' : 'bg-[#ffffff] border-slate-200/60 shadow-xs'
       }`}>
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          {/* Sidebar toggle — always visible, compact on mobile */}
+          {/* Sidebar toggle - always visible, compact on mobile */}
           <button
             onClick={() => setLeftSidebarOpen(prev => !prev)}
             className={`p-2 rounded-lg transition active:scale-95 shrink-0 ${
@@ -2896,7 +2898,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           {/* Theme switcher */}
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className={`hidden xs:flex p-2 rounded-lg transition active:scale-95 items-center justify-center ${
+            className={`flex p-2 rounded-lg transition active:scale-95 items-center justify-center shrink-0 ${
               theme === 'dark' ? 'hover:bg-white/5 text-amber-400' : 'hover:bg-black/5 text-slate-600'
             }`}
             title="Switch theme"
@@ -2907,7 +2909,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
           {/* Right Sidebar Control hub toggle */}
           <button
             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-            className={`p-2 rounded-lg transition active:scale-95 flex items-center justify-center cursor-pointer ${
+            className={`p-2 rounded-lg transition active:scale-95 flex items-center justify-center cursor-pointer shrink-0 ${
               theme === 'dark'
                 ? 'hover:bg-white/5 text-slate-300'
                 : 'hover:bg-black/5 text-slate-700'
@@ -2926,7 +2928,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                 setProfileSuccessMessage(null);
                 setProfileErrorMessage(null);
               }}
-              className={`hidden xs:flex items-center space-x-2.5 py-1 px-2.5 rounded-xl transition active:scale-[0.98] text-left cursor-pointer ${
+              className={`flex items-center space-x-2.5 py-1 px-2.5 rounded-xl transition active:scale-[0.98] text-left cursor-pointer shrink-0 ${
                 activeView === 'profile'
                   ? theme === 'dark' ? 'bg-white/10' : 'bg-black/10'
                   : theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'
@@ -3389,7 +3391,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                   <motion.div 
                     animate={{ y: [0, -8, 0] }}
                     transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-                    className="relative w-48 h-48 flex items-center justify-center"
+                    className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-36 md:h-36 flex items-center justify-center"
                   >
                     {/* Floating ambient glow backing */}
                     <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/25 via-indigo-500/20 to-amber-500/25 rounded-full blur-3xl opacity-80 dark:opacity-90 animate-pulse duration-[4000ms]"></div>
@@ -3399,7 +3401,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
                     <div className="absolute inset-0 rounded-full border border-dashed border-cyan-500/20 dark:border-cyan-400/25 animate-spin" style={{ animationDuration: '40s' }}></div>
                     <div className="absolute inset-4 rounded-full border border-dashed border-amber-500/15 dark:border-amber-400/20 animate-spin" style={{ animationDuration: '30s', animationDirection: 'reverse' }}></div>
 
-                    <ChatLogo className="w-40 h-40 relative z-10 transition-transform duration-500 hover:scale-110 filter drop-shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:drop-shadow-[0_0_45px_rgba(6,182,212,0.6)] cursor-pointer" />
+                    <ChatLogo className="w-24 h-24 sm:w-28 sm:h-28 md:w-28 md:h-28 relative z-10 transition-transform duration-500 hover:scale-110 filter drop-shadow-[0_0_25px_rgba(6,182,212,0.4)] dark:drop-shadow-[0_0_45px_rgba(6,182,212,0.6)] cursor-pointer" />
                   </motion.div>
                 </div>
 
@@ -3785,7 +3787,7 @@ The cloud intelligence service is currently experiencing exceptionally high dema
               }`}>
                 
                 <div className="flex items-end space-x-2 w-full pb-0.5">
-                  {/* File upload removed from chat bar — use Document Control Panel sidebar */}
+                  {/* File upload removed from chat bar - use Document Control Panel sidebar */}
                   <input
                     ref={cameraFileInputRef}
                     type="file"
@@ -3869,12 +3871,12 @@ The cloud intelligence service is currently experiencing exceptionally high dema
             opacity: rightSidebarOpen ? 1 : 0
           }}
           transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-          style={{ width: 'min(340px, calc(100vw - 48px))' }}
+          style={{ width: 'min(340px, calc(100vw - 8px))' }}
           className={`absolute right-0 top-0 bottom-0 h-full flex flex-col overflow-hidden border-l z-40 transition-colors ${
             theme === 'dark' ? 'bg-[#111216]/98 border-white/5' : 'bg-[#f8fafc]/98 border-slate-200/60 shadow-lg'
           }`}
         >
-          <div className="w-[340px] max-w-[calc(100vw-20px)] h-full flex flex-col justify-between p-5 shrink-0 overflow-hidden font-sans">
+          <div className="w-[340px] max-w-[calc(100vw-8px)] h-full flex flex-col justify-between p-5 shrink-0 overflow-hidden font-sans">
                 
                 <div className="space-y-4 flex flex-col flex-1 overflow-hidden">
                   <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/5 pb-2.5 shrink-0">

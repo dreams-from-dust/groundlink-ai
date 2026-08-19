@@ -8,28 +8,31 @@ Complete instructions for running GroundLink AI locally and deploying to Vercel.
 
 - Node.js 18 or higher
 - npm 9 or higher
-- A Google account (for Gemini API and Firebase)
 - A Groq account (free at console.groq.com)
+- A Jina AI account (free at jina.ai)
+- A Firebase project
 
 ---
 
 ## 1. Get Your Free API Keys
 
-### Gemini API (required — embeddings and multimodal extraction)
-
-1. Go to aistudio.google.com/apikey
-2. Click Create API Key
-4. Copy the key
-5. Free tier: 1500 requests per day, 15 per minute
-
-### Groq API (required — primary LLM)
+### Groq API (required - chat generation)
 
 1. Go to console.groq.com
 2. Sign up with Google or email (free, no credit card)
 3. Go to API Keys in the left sidebar
 4. Click Create API Key, give it a name
-5. Copy the key — it starts with gsk_
-6. Free tier: 14,400 requests per day on llama-3.3-70b
+5. Copy the key - it starts with gsk_
+6. Free tier: generous daily request limits on openai/gpt-oss-120b
+
+### Jina AI (required - document embeddings)
+
+1. Go to jina.ai
+2. Sign up (free, no credit card)
+3. Open the API Keys section of the dashboard
+4. Click Create Key
+5. Copy the key - it starts with jina_
+6. Free tier: 1 million tokens on signup, monthly allowance
 
 ---
 
@@ -52,8 +55,8 @@ cp .env.example .env.local
 Open `.env.local` and fill in your keys:
 
 ```env
-GEMINI_API_KEY=
 GROQ_API_KEY=
+JINA_API_KEY=
 APP_URL=http://localhost:5173
 NODE_ENV=development
 ```
@@ -71,6 +74,8 @@ This starts two processes in parallel:
 - Vite dev server on http://localhost:5173
 
 Open http://localhost:5173 in your browser.
+
+Note: the app works even without either key configured. Without GROQ_API_KEY it falls back to a local heuristic answer generator. Without JINA_API_KEY it falls back to a local heuristic embedding for document search. Both keys are recommended for full quality.
 
 ---
 
@@ -99,20 +104,20 @@ In Vercel dashboard, go to your project, then Settings, then Environment Variabl
 
 | Variable | Value |
 |---|---|
-| GEMINI_API_KEY | 
-| GROQ_API_KEY | 
-| APP_URL | 
+| GROQ_API_KEY | |
+| JINA_API_KEY | |
+| APP_URL | |
 | NODE_ENV | production |
-| FIREBASE_PROJECT_ID |
-| FIREBASE_FIRESTORE_DATABASE_ID | 
-| FIREBASE_SERVICE_ACCOUNT_JSON | 
-| VITE_FIREBASE_API_KEY |
-| VITE_FIREBASE_AUTH_DOMAIN | 
-| VITE_FIREBASE_PROJECT_ID | 
-| VITE_FIREBASE_STORAGE_BUCKET | 
-| VITE_FIREBASE_MESSAGING_SENDER_ID |
-| VITE_FIREBASE_APP_ID |
-| VITE_FIREBASE_FIRESTORE_DATABASE_ID |
+| FIREBASE_PROJECT_ID | |
+| FIREBASE_FIRESTORE_DATABASE_ID | |
+| FIREBASE_SERVICE_ACCOUNT_JSON | |
+| VITE_FIREBASE_API_KEY | |
+| VITE_FIREBASE_AUTH_DOMAIN | |
+| VITE_FIREBASE_PROJECT_ID | |
+| VITE_FIREBASE_STORAGE_BUCKET | |
+| VITE_FIREBASE_MESSAGING_SENDER_ID | |
+| VITE_FIREBASE_APP_ID | |
+| VITE_FIREBASE_FIRESTORE_DATABASE_ID | |
 
 ### Get the Firebase Service Account JSON
 

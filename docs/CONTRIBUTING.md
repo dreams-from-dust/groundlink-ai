@@ -8,10 +8,10 @@
 
 ## Branch Naming
 
-- feature/ — new functionality
-- fix/ — bug fixes
-- docs/ — documentation only
-- chore/ — dependency updates
+- feature/ - new functionality
+- fix/ - bug fixes
+- docs/ - documentation only
+- chore/ - dependency updates
 
 ## Code Style
 

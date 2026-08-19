@@ -11,7 +11,7 @@ A full-stack Retrieval-Augmented Generation (RAG) platform. Upload any document,
 Most AI tools hallucinate or lose context with large documents. GroundLink solves this by:
 
 1. Parsing uploaded files into overlapping text chunks server-side
-2. Converting every chunk into a vector embedding via Gemini Embedding API
+2. Converting every chunk into a vector embedding via Jina AI
 3. Finding the most semantically similar chunks via cosine similarity when you ask a question
 4. Passing only matched chunks as grounded context to the LLM
 5. Returning an answer with clickable inline citations linking to exact source passages
@@ -22,10 +22,12 @@ Zero hallucination. Every claim is traceable.
 
 ## Features
 
-- Multi-format ingestion: PDF, DOCX, PPTX, TXT, MD, images, video
+- Multi-format ingestion: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, MD
+- All text extraction runs locally, no external API calls or per-file cost
 - Semantic vector search with cosine similarity and keyword fallback
 - Grounded LLM answers with inline citations and source preview sidebar
-- Groq LLM (llama-3.3-70b) as primary with Gemini as fallback
+- Groq LLM (openai/gpt-oss-120b) for chat generation, with automatic local fallback
+- Jina AI for document embeddings, with automatic local fallback
 - Firebase Authentication with email/password and Google Sign-In
 - Voice input via Web Speech API
 - Custom system prompts
@@ -59,10 +61,18 @@ Zero hallucination. Every claim is traceable.
 ### AI
 | Technology | Purpose |
 |---|---|
-| Groq API (llama-3.3-70b) | Primary LLM, text generation |
-| Google Gemini 2.0 Flash | Fallback LLM, multimodal extraction |
-| Gemini Embedding API | Vector embeddings for RAG |
-| pdf-parse | Local PDF text extraction |
+| Groq API (openai/gpt-oss-120b) | Chat generation |
+| Jina AI (jina-embeddings-v3) | Vector embeddings for RAG |
+| Local heuristic fallback | Used automatically if no API keys are configured |
+
+### Document Parsing (all local, zero API cost)
+| Technology | Purpose |
+|---|---|
+| pdf-parse | PDF text extraction |
+| mammoth | DOCX text extraction |
+| word-extractor | Legacy DOC text extraction |
+| JSZip | PPTX text extraction (raw slide XML) |
+| xlsx (SheetJS) | XLSX/XLS/CSV text extraction |
 
 ### Auth and Database
 | Technology | Purpose |
@@ -86,13 +96,13 @@ Zero hallucination. Every claim is traceable.
 Upload File
     |
     v
-Text Extraction (pdf-parse for PDFs, Gemini multimodal for images/video)
+Text Extraction (pdf-parse, mammoth, word-extractor, JSZip, xlsx - all local)
     |
     v
 Chunking (800 chars, 150 char overlap, sentence-aware)
     |
     v
-Embedding (Gemini Embedding API)
+Embedding (Jina AI)
     |
     v
 Firestore Storage (/users/{uid}/chunks)
@@ -118,7 +128,7 @@ git clone https://github.com/dreams-from-dust/groundlink-ai.git
 cd groundlink-ai
 npm install
 cp .env.example .env.local
-# Fill in GEMINI_API_KEY and GROQ_API_KEY in .env.local
+# Fill in GROQ_API_KEY and JINA_API_KEY in .env.local
 npm run dev
 # UI: http://localhost:5173
 ```
@@ -127,19 +137,19 @@ npm run dev
 
 ## Getting Free API Keys
 
-**Gemini API (required for embeddings):**
-1. Go to aistudio.google.com/apikey
-2. Click Create API Key
-3. Select your Google project
-4. Copy the key starting with AIzaSy
-
-**Groq API (required for LLM):**
+**Groq API (chat generation):**
 1. Go to console.groq.com
 2. Create a free account
 3. API Keys -> Create API Key
 4. Copy the key starting with gsk_
 
-Both are completely free with generous daily limits.
+**Jina AI (document embeddings):**
+1. Go to jina.ai
+2. Create a free account
+3. API Keys -> Create Key
+4. Copy the key starting with pa-
+
+Both are free, with generous limits. The app also runs without either key, using a local heuristic fallback for chat generation and embeddings.
 
 ---
 
@@ -155,8 +165,8 @@ Then in Vercel dashboard add these environment variables:
 
 | Variable | Value |
 |---|---|
-| GEMINI_API_KEY | Your Gemini key |
 | GROQ_API_KEY | Your Groq key |
+| JINA_API_KEY | Your Jina AI key |
 | APP_URL | https://your-app.vercel.app |
 | FIREBASE_PROJECT_ID | gen-lang-client-0019255293 |
 | FIREBASE_FIRESTORE_DATABASE_ID | ai-studio-ragexplorer-... |

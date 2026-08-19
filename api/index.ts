@@ -1,15 +1,24 @@
-// GroundLink AI — Vercel Serverless API Handler
+// GroundLink AI - Vercel Serverless API Handler
 // All routes from server.ts exported as a single Express app for Vercel
 
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
-import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { PDFParse } from 'pdf-parse';
+import mammoth from 'mammoth';
+import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
+import WordExtractor from 'word-extractor';
+
+// Embedding vector dimension - must stay consistent across Jina AI responses,
+// the local heuristic fallback, and zero-vector error fallbacks, or cosine similarity breaks.
+const EMBEDDING_DIMENSIONS = 1024;
 
 // Load environment variables
 
@@ -212,39 +221,31 @@ const authenticateUser = async (req: any, res: any, next: any) => {
 
 let vectorDatabase: Chunk[] = [];
 
-// Lazy initialization of Gemini client
-let geminiClient: GoogleGenAI | null = null;
-let lastUsedApiKey: string | null = null;
-
-function getOpenRouterKey(): string {
-  // Only use the dedicated GEMINI_API_KEY — never scan all env vars (avoids picking up Firebase keys)
-  const key = process.env.GEMINI_API_KEY;
-  if (key && key.trim() !== '') return key.trim();
-  return 'dummy_key';
+function getGroqKey(): string {
+  const key = process.env.GROQ_API_KEY;
+  return (key && key.trim() !== '') ? key.trim() : '';
 }
 
-function isKeyBlocked(key: string | null | undefined): boolean {
-  if (!key) return true;
-  if (key === 'dummy_key' || key === 'dummy') return true;
-  if (key.startsWith('AQ.')) return true;
-  return false;
+function getJinaKey(): string {
+  const key = process.env.JINA_API_KEY;
+  return (key && key.trim() !== '') ? key.trim() : '';
 }
 
 function getLocalMockEmbedding(text: string): number[] {
-  const vector = new Array(768).fill(0);
+  const vector = new Array(EMBEDDING_DIMENSIONS).fill(0);
   const words = text.toLowerCase().split(/[^a-z0-9]+/);
   for (const word of words) {
     if (word.length < 3) continue;
     let hash = 0;
     for (let i = 0; i < word.length; i++) {
-      hash = (hash * 31 + word.charCodeAt(i)) % 768;
+      hash = (hash * 31 + word.charCodeAt(i)) % EMBEDDING_DIMENSIONS;
     }
     vector[hash] += 1;
   }
   const sumSq = vector.reduce((sum, val) => sum + val * val, 0);
   if (sumSq > 0) {
     const mag = Math.sqrt(sumSq);
-    for (let i = 0; i < 768; i++) {
+    for (let i = 0; i < EMBEDDING_DIMENSIONS; i++) {
       vector[i] /= mag;
     }
   } else {
@@ -406,85 +407,60 @@ Overall, it is an eye-catching, highly creative, and memorable logo that effecti
   };
 }
 
-function getGeminiClient(): GoogleGenAI {
-  const apiKey = getOpenRouterKey();
-  if (!geminiClient || lastUsedApiKey !== apiKey) {
-    geminiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-    lastUsedApiKey = apiKey;
-  }
-  return geminiClient;
-}
-
-
-// Helper to format Gemini API errors into clear, friendly, and actionable messages
-function formatGeminiError(err: any): Error {
-  const errStr = typeof err === 'string' ? err : (err?.message || JSON.stringify(err) || '');
-  
-  if (errStr.includes('PERMISSION_DENIED') || errStr.includes('403') || errStr.includes('denied access')) {
-    return new Error(
-      "Gemini API Access Denied (403 Permission Denied): Your Google Cloud project or API key has been denied access to the Gemini developer APIs. " +
-      "Please open the 'Settings > Secrets' panel in Google AI Studio, check or select a valid billing-enabled API key, and make sure your project has permissions."
-    );
-  }
-  
-  if (errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('429')) {
-    return new Error(
-      "Gemini API Rate Limit Exceeded (429 Resource Exhausted): You have hit the rate limit for the free tier. " +
-      "Upgrading to a paid tier increases your quota. You can select a billing-enabled API key in the 'Settings > Secrets' panel."
-    );
-  }
-  
-  if (errStr.includes('NOT_FOUND') || errStr.includes('404')) {
-    return new Error(
-      "Gemini API Model Not Found (404 Not Found): The requested model is invalid or unsupported. " +
-      "Please verify the active model selection or update the model configuration."
-    );
-  }
-  
-  return err instanceof Error ? err : new Error(errStr || "Unknown Gemini API error");
-}
-
-// Global robust retry wrapper for Gemini Embedding calls (renamed for seamless integration)
-async function getOpenRouterEmbedding(texts: string[]): Promise<number[][]> {
-  const key = getOpenRouterKey();
-  if (isKeyBlocked(key)) {
-    console.info('Using local heuristic embedding (blocked API key)');
+// Batched Jina AI embedding call with retry + graceful local fallback.
+// task improves retrieval quality: 'retrieval.passage' for chunks being indexed, 'retrieval.query' for search text.
+async function getJinaEmbedding(texts: string[], inputType: 'query' | 'document' = 'document'): Promise<number[][]> {
+  const key = getJinaKey();
+  if (!key) {
+    console.info('Using local heuristic embedding (no JINA_API_KEY configured)');
     return texts.map(t => getLocalMockEmbedding(t));
   }
 
-  const ai = getGeminiClient();
+  // Jina AI requires fully-qualified task strings
+  const jinaInputType = inputType === 'document' ? 'retrieval.passage' : 'retrieval.query';
+
   let lastErr: any = null;
   const retries = 3;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const promises = texts.map(async (text) => {
-        const res = await ai.models.embedContent({
-          model: 'gemini-embedding-2-preview',
-          contents: text
-        });
-        if (!res.embeddings || !res.embeddings[0] || !res.embeddings[0].values) {
-          throw new Error("Invalid embedding response from Gemini API");
-        }
-        return res.embeddings[0].values;
+      const response = await fetch('https://api.jina.ai/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`
+        },
+        body: JSON.stringify({
+          input: texts,
+          model: 'jina-embeddings-v3',
+          task: jinaInputType,
+          dimensions: EMBEDDING_DIMENSIONS,
+          normalized: true
+        })
       });
-      return await Promise.all(promises);
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`Jina AI API Error (${response.status}): ${errText}`);
+      }
+
+      const data: any = await response.json();
+      if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
+        throw new Error("Invalid embedding response from Jina AI API");
+      }
+
+      // Jina returns results tagged with their original input index - sort defensively to guarantee order.
+      const sorted = [...data.data].sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0));
+      return sorted.map((item: any) => item.embedding as number[]);
     } catch (err: any) {
       lastErr = err;
-      console.warn(`Gemini Embedding attempt ${attempt} failed:`, err.message || err);
+      console.warn(`Jina AI Embedding attempt ${attempt} failed:`, err.message || err);
       if (attempt < retries) {
         await new Promise(res => setTimeout(res, 1000 * attempt));
       }
     }
   }
-  
-  console.info('Gemini Embedding failed after retries. Falling back to local heuristic embedding.');
+
+  console.info('Jina AI Embedding failed after retries. Falling back to local heuristic embedding.');
   return texts.map(t => getLocalMockEmbedding(t));
 }
 
@@ -500,8 +476,8 @@ async function generateContentWithGroq(
     max_tokens?: number;
   }
 ): Promise<{ text: string; modelUsed: string }> {
-  // Text only — Groq does not support image attachments at this scale
-  const model = 'llama-3.3-70b-versatile';
+  // Groq's fast, currently-supported flagship model (llama-3.3-70b-versatile was retired by Groq).
+  const model = 'openai/gpt-oss-120b';
 
   const messages: any[] = [];
 
@@ -517,7 +493,7 @@ async function generateContentWithGroq(
   if (options.messages) {
     const nonSystemMessages = options.messages.filter((msg: any) => msg.role !== 'system');
     for (const msg of nonSystemMessages) {
-      // Strip images — only send text to Groq
+      // Strip images - only send text to Groq
       let textContent = '';
       if (typeof msg.content === 'string') {
         textContent = msg.content;
@@ -562,8 +538,9 @@ async function generateContentWithGroq(
   };
 }
 
-// Global robust retry wrapper for Gemini Chat Completions (renamed for seamless integration)
-async function generateContentWithOpenRouter(
+// Text generation: Groq only, with retries, falling back to the local heuristic generator if
+// Groq is unavailable or fails entirely. (Gemini has been fully removed.)
+async function generateAnswer(
   options: {
     prompt?: string;
     mimeType?: string;
@@ -574,142 +551,28 @@ async function generateContentWithOpenRouter(
     max_tokens?: number;
   }
 ): Promise<{ text: string; modelUsed: string }> {
-  // If Groq key is set, prioritize using Groq API for text generation!
-  const groqKey = process.env.GROQ_API_KEY || process.env.USER_GROQ_API_KEY;
-  if (groqKey && groqKey.trim() !== "" && !groqKey.startsWith("AQ.")) {
-    // Groq handles both text and image queries (llama-3.2-11b-vision-preview for images)
-    // Only bypass Groq for raw binary document extraction (PDF/video server-side processing)
-    const isBinaryExtraction = Boolean(
-      options.mimeType && !options.mimeType.startsWith('image/') && (
-        options.mimeType.includes('pdf') ||
-        options.mimeType.includes('video') ||
-        options.mimeType.includes('presentation') ||
-        options.mimeType.includes('document') ||
-        options.mimeType.includes('msword')
-      )
-    );
+  const groqKey = getGroqKey();
 
-    if (!isBinaryExtraction) {
+  if (groqKey) {
+    let lastErr: any = null;
+    const retries = 3;
+    for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        console.info("Using Groq API, model auto-selected for content type");
+        console.info(`Using Groq API (attempt ${attempt})`);
         return await generateContentWithGroq(groqKey, options);
       } catch (err: any) {
-        console.error("Groq generation failed, falling back to Gemini...", err.message || err);
-      }
-    } else {
-      console.info("Bypassing Groq for binary document extraction — using Gemini.");
-    }
-  }
-
-  const key = getOpenRouterKey();
-  if (isKeyBlocked(key)) {
-    console.info('Using local heuristic generator (blocked API key)');
-    return generateLocalAnswer(options);
-  }
-
-  const ai = getGeminiClient();
-  const model = "gemini-3.5-flash";
-  let lastErr: any = null;
-  const retries = 3;
-
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      let contents: any[] = [];
-
-      if (options.messages) {
-        const nonSystemMessages = options.messages.filter((msg: any) => msg.role !== 'system');
-        contents = nonSystemMessages.map((msg: any) => {
-          const role = msg.role === 'assistant' ? 'model' : 'user';
-          let parts: any[] = [];
-
-          if (typeof msg.content === 'string') {
-            parts.push({ text: msg.content });
-          } else if (Array.isArray(msg.content)) {
-            for (const item of msg.content) {
-              if (item.type === 'text') {
-                parts.push({ text: item.text });
-              } else if (item.type === 'image_url') {
-                const url = item.image_url?.url || '';
-                if (url.startsWith('data:')) {
-                  const commaIndex = url.indexOf(',');
-                  if (commaIndex !== -1) {
-                    const prefix = url.substring(0, commaIndex);
-                    const data = url.substring(commaIndex + 1);
-                    const mimeMatch = prefix.match(/data:([^;]+);base64/);
-                    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-                    parts.push({
-                      inlineData: {
-                        mimeType,
-                        data
-                      }
-                    });
-                  }
-                }
-              } else if (item.inlineData) {
-                parts.push({
-                  inlineData: {
-                    mimeType: item.inlineData.mimeType,
-                    data: item.inlineData.data
-                  }
-                });
-              }
-            }
-          } else if (msg.parts) {
-            parts = msg.parts;
-          }
-          return { role, parts };
-        });
-      } else if (options.prompt) {
-        const parts: any[] = [{ text: options.prompt }];
-        if (options.base64Data && options.mimeType) {
-          parts.push({
-            inlineData: {
-              mimeType: options.mimeType,
-              data: options.base64Data
-            }
-          });
-        }
-        contents.push({ role: 'user', parts });
-      }
-
-      const config: any = {};
-      let finalSystemInstruction = options.systemInstruction || '';
-      if (options.messages) {
-        const systemMsgs = options.messages.filter((msg: any) => msg.role === 'system');
-        if (systemMsgs.length > 0) {
-          const systemText = systemMsgs.map((msg: any) => typeof msg.content === 'string' ? msg.content : '').join('\n');
-          if (systemText) {
-            finalSystemInstruction = finalSystemInstruction ? `${finalSystemInstruction}\n\n${systemText}` : systemText;
-          }
+        lastErr = err;
+        console.warn(`Groq generation attempt ${attempt} failed:`, err.message || err);
+        if (attempt < retries) {
+          await new Promise(res => setTimeout(res, 1000 * attempt));
         }
       }
-      if (finalSystemInstruction) {
-        config.systemInstruction = finalSystemInstruction;
-      }
-      if (options.temperature !== undefined) {
-        config.temperature = options.temperature;
-      }
-
-      const response = await ai.models.generateContent({
-        model,
-        contents,
-        config
-      });
-
-      return {
-        text: response.text || '',
-        modelUsed: model
-      };
-    } catch (err: any) {
-      lastErr = err;
-      console.warn(`Gemini generation attempt ${attempt} failed:`, err.message || err);
-      if (attempt < retries) {
-        await new Promise(res => setTimeout(res, 1000 * attempt));
-      }
     }
+    console.info('Groq generation failed after retries. Falling back to local heuristic generator.');
+  } else {
+    console.info('Using local heuristic generator (no GROQ_API_KEY configured)');
   }
 
-  console.info('Gemini generation failed after retries. Falling back to local heuristic generator.');
   return generateLocalAnswer(options);
 }
 
@@ -795,6 +658,92 @@ function chunkText(text: string, title: string, chunkSize: number = 800, chunkOv
   return chunks;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Local document text extraction - no LLM/vision API required.
+// Supports: DOCX (mammoth), legacy DOC (word-extractor), PPTX (raw XML via JSZip),
+// XLSX/XLS/CSV (SheetJS). PDF and TXT/MD are handled inline at their call sites.
+// ─────────────────────────────────────────────────────────────────────────
+
+async function extractDocxText(buffer: Buffer): Promise<string> {
+  const result = await mammoth.extractRawText({ buffer });
+  return (result.value || '').trim();
+}
+
+async function extractLegacyDocText(buffer: Buffer): Promise<string> {
+  const extractor = new WordExtractor();
+  const doc = await extractor.extract(buffer);
+  return (doc.getBody() || '').trim();
+}
+
+async function extractPptxText(buffer: Buffer): Promise<string> {
+  const zip = await JSZip.loadAsync(buffer);
+  const slideFiles = Object.keys(zip.files)
+    .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => {
+      const numA = parseInt(a.match(/slide(\d+)\.xml/)?.[1] || '0', 10);
+      const numB = parseInt(b.match(/slide(\d+)\.xml/)?.[1] || '0', 10);
+      return numA - numB;
+    });
+
+  const slideTexts: string[] = [];
+  for (let i = 0; i < slideFiles.length; i++) {
+    const xml = await zip.files[slideFiles[i]].async('text');
+    const matches = xml.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+    const text = matches
+      .map(m => m.replace(/<a:t>/, '').replace(/<\/a:t>/, ''))
+      .join(' ')
+      .trim();
+    if (text) {
+      slideTexts.push(`Slide ${i + 1}: ${text}`);
+    }
+  }
+  return slideTexts.join('\n\n');
+}
+
+function extractSheetText(buffer: Buffer): string {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const sheetTexts: string[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const csvText = XLSX.utils.sheet_to_csv(sheet).trim();
+    if (csvText) {
+      sheetTexts.push(`Sheet: ${sheetName}\n${csvText}`);
+    }
+  }
+  return sheetTexts.join('\n\n---\n\n');
+}
+
+const UNSUPPORTED_LEGACY_FORMATS = new Set(['ppt']);
+const SUPPORTED_EXTRACTION_FORMATS = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'txt', 'md'];
+
+// Routes a binary file (by extension) to the correct local parser. Never calls an external API.
+async function extractLocalFileText(extension: string, buffer: Buffer): Promise<{ text: string; supported: boolean }> {
+  try {
+    if (extension === 'docx') {
+      return { text: await extractDocxText(buffer), supported: true };
+    }
+    if (extension === 'doc') {
+      return { text: await extractLegacyDocText(buffer), supported: true };
+    }
+    if (extension === 'pptx') {
+      return { text: await extractPptxText(buffer), supported: true };
+    }
+    if (extension === 'ppt') {
+      return {
+        text: `[Unsupported Legacy Format] Legacy .ppt (pre-2007 PowerPoint) files cannot be parsed locally. Please re-save this file as .pptx and re-upload.`,
+        supported: false
+      };
+    }
+    if (extension === 'xlsx' || extension === 'xls' || extension === 'csv') {
+      return { text: extractSheetText(buffer), supported: true };
+    }
+    return { text: '', supported: false };
+  } catch (err: any) {
+    console.error(`Local extraction failed for .${extension} file:`, err.message || err);
+    return { text: '', supported: false };
+  }
+}
+
 // Sample Corpus Data
 const SAMPLE_DOCS = [
   {
@@ -835,7 +784,7 @@ Key Architectures:
 1. Convolutional Neural Networks (CNN): Specialized for grid-like data (images). Uses convolution operations, pooling layers. Models: VGG, ResNet, EfficientNet, YOLO.
 2. Recurrent Neural Networks (RNN): Handle sequential data. LSTM and GRU solve the vanishing gradient problem. Used in time series, speech, early NLP.
 3. Transformers: Attention-based architecture revolutionizing NLP and vision. Self-attention mechanism allows parallel processing. BERT, GPT, T5, ViT are transformer-based models.
-4. Generative Adversarial Networks (GAN): Generator vs Discriminator framework for generating realistic data — images, audio, video.
+4. Generative Adversarial Networks (GAN): Generator vs Discriminator framework for generating realistic data - images, audio, video.
 5. Diffusion Models: State-of-the-art for image generation. Stable Diffusion, DALL-E, Midjourney.
 
 Training:
@@ -863,7 +812,7 @@ Core NLP Tasks:
 Evolution of NLP:
 - Early: Rule-based systems, regex, hand-crafted features
 - Statistical: N-gram models, TF-IDF, bag-of-words
-- Word Embeddings: Word2Vec, GloVe, FastText — dense vector representations
+- Word Embeddings: Word2Vec, GloVe, FastText - dense vector representations
 - ELMo: Contextualized word embeddings from BiLSTM
 - BERT (2018): Bidirectional transformers, pre-trained on masked language modeling
 - GPT series: Autoregressive language models, scaling to billions of parameters
@@ -1014,7 +963,6 @@ How to use GroundLink:
 
 
 import express from 'express';
-import path from 'path';
 
 const app = express();
 
@@ -1250,12 +1198,8 @@ app.use(express.json({ limit: '120mb' }));
   app.post('/api/documents/load-sample', authenticateUser, loadSampleRateLimiter, async (req: any, res) => {
     try {
       const { chunkSize = 800, chunkOverlap = 150 } = req.body;
-      // API key check — Gemini used for embeddings
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(400).json({ error: 'GEMINI_API_KEY is required for document embedding.' });
-      }
 
-      // Always clear before loading sample docs — prevents mixing with previously uploaded custom files
+      // Always clear before loading sample docs - prevents mixing with previously uploaded custom files
       try {
         await clearUserChunksAndDocs(req.user.uid);
         console.log('[Load Sample] Cleared existing user data before loading sample corpus');
@@ -1283,14 +1227,14 @@ app.use(express.json({ limit: '120mb' }));
         let embeddingsList: any[] = [];
 
         try {
-          embeddingsList = await getOpenRouterEmbedding(batch.map(c => c.text));
+          embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
         } catch (embErr: any) {
-          console.warn("Gemini embedding calculation failed during sample load, using zero-vector fallback:", embErr.message);
-          embeddingsList = batch.map(() => new Array(768).fill(0));
+          console.warn("Jina AI embedding calculation failed during sample load, using zero-vector fallback:", embErr.message);
+          embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
         }
 
         for (let j = 0; j < batch.length; j++) {
-          const embValues = embeddingsList[j] || new Array(768).fill(0);
+          const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
           indexChunks.push({
             id: `chunk-doc-${i + j}-${Date.now()}`,
             docTitle: batch[j].docTitle,
@@ -1341,11 +1285,6 @@ app.use(express.json({ limit: '120mb' }));
         return res.status(400).json({ error: "Missing uploaded files array." });
       }
 
-      // API key check — Gemini used for embeddings
-      if (!process.env.GEMINI_API_KEY) {
-        return res.status(400).json({ error: 'GEMINI_API_KEY is required for document embedding.' });
-      }
-
       if (!append) {
         vectorDatabase = [];
       }
@@ -1369,10 +1308,10 @@ app.use(express.json({ limit: '120mb' }));
 
             if (lowerTitle.includes('demo_video') || lowerTitle === 'demo_video.mp4') {
               console.log(`Serving preloaded high-fidelity transcription for demo video: ${title}`);
-              text = `This is the official demo video for GroundLink AI, a cutting-edge Retrieval-Augmented Generation (RAG) platform. The video showcases how users can easily drag and drop text files, PDFs, Microsoft Word documents, PowerPoint presentations, images, and videos directly into the platform. 
+              text = `This is the official demo video for GroundLink AI, a cutting-edge Retrieval-Augmented Generation (RAG) platform. The video showcases how users can easily drag and drop text files, PDFs, Microsoft Word documents, PowerPoint presentations, and spreadsheets directly into the platform.
 Key features highlighted in the demo include:
 1. Dynamic Document Indexing: Real-time chunking and high-performance embedding generation.
-2. Multi-modal Verification: Direct analysis of visual files, diagrams, schemas, and video assets.
+2. Local Multi-Format Parsing: Direct extraction from PDFs, Word docs, slides, and spreadsheets - no external API required for extraction.
 3. Interactive Source Citation: Clicking citation indicators in the chat instantly reveals the source passage in the sidebar.
 4. Custom System Prompts: Creating tailored personas, language styles, and response structures.
 The narrator explains how this solves common LLM problems like knowledge cutoffs and hallucinations, ensuring all answers are 100% grounded in facts.`;
@@ -1380,23 +1319,23 @@ The narrator explains how this solves common LLM problems like knowledge cutoffs
               console.log(`Serving preloaded description for demo image: ${title}`);
               text = `This diagram illustrates the System Architecture of GroundLink AI's RAG system.
 The architecture is structured as follows:
-- Document Ingestion: Users upload PDFs, slides, texts, images, or videos. The system uses specific parsers and Gemini multimodal models to extract full textual context.
+- Document Ingestion: Users upload PDFs, Word docs, PowerPoint slides, spreadsheets, and plain text files. The system uses local parsers (pdf-parse, mammoth, JSZip, SheetJS) to extract full textual context with zero external API dependency.
 - Text Chunking: Extracted texts are sliced into overlapping chunks (default: 800 characters, 150 overlap).
-- Vector Embedding: Chunks are passed to 'gemini-embedding-2-preview' to generate dense vector representation values.
+- Vector Embedding: Chunks are passed to Jina AI's 'jina-embeddings-v3' model to generate dense vector representation values.
 - Vector Database Indexing: These vectors are cached in a local high-speed in-memory vector database.
 - Query Flow: When a user asks a question, the query is embedded, and cosine similarity is run against cached vectors.
-- Response Augmentation: The matched chunks are retrieved, formatted as grounded context, and sent to gemini-3.5-flash alongside the user query to produce a complete answer with citation links.`;
+- Response Augmentation: The matched chunks are retrieved, formatted as grounded context, and sent to Groq's 'openai/gpt-oss-120b' model alongside the user query to produce a complete answer with citation links.`;
             } else if (lowerTitle.includes('demo_document') || lowerTitle === 'demo_document.pdf') {
               console.log(`Serving preloaded manual for demo document: ${title}`);
               text = `Welcome to the GroundLink AI User Guide and Operations Manual.
 This document provides details on configuring and optimizing the grounded retrieval platform.
-1. Document Formats: Supported formats include Plain Text, Markdown, Adobe PDF, Microsoft Word, PowerPoint, Images, and Video files.
+1. Document Formats: Supported formats include Plain Text, Markdown, Adobe PDF, Microsoft Word (DOC/DOCX), PowerPoint (PPT/PPTX), and Spreadsheets (XLS/XLSX/CSV).
 2. Key Settings:
    - System Instructions: Set active prompts to adjust tone, target language, or response format.
-3. Voice Typing & Camera: Use the built-in microphone for instant voice input, or captured webcam pictures for multimodal analysis. Make sure to open the application in a new tab if running inside restricted sandboxed frame containers.
+3. Voice Typing: Use the built-in microphone for instant voice input. Make sure to open the application in a new tab if running inside restricted sandboxed frame containers.
 4. Citation Matching: When reading a reply, click numeric citation indicators (such as [1]) to render the exact source text passage inside the verification panel.`;
             } else if (extension === 'txt' || extension === 'md') {
-              // Decode text and markdown files instantly on the server-side to bypass Gemini load entirely!
+              // Decode text and markdown files instantly on the server-side - no API needed
               text = Buffer.from(rawBase64, 'base64').toString('utf8');
             } else if (extension === 'pdf') {
               let parserInstance: PDFParse | null = null;
@@ -1411,7 +1350,7 @@ This document provides details on configuring and optimizing the grounded retrie
                   throw new Error("No text content could be parsed from the PDF.");
                 }
               } catch (pdfErr: any) {
-                console.warn(`[Local PDF Parser] Local parsing failed, falling back to LLM extraction:`, pdfErr.message || pdfErr);
+                console.warn(`[Local PDF Parser] Local parsing failed:`, pdfErr.message || pdfErr);
                 text = "";
               } finally {
                 if (parserInstance) {
@@ -1422,72 +1361,28 @@ This document provides details on configuring and optimizing the grounded retrie
                   }
                 }
               }
-            }
-            
-            if (!text || text.trim() === "") {
-              let mimeType = 'application/pdf';
-              let prompt = "Extract all text content from this document exactly as written under headings. Do not summarize, skip, explain, or edit. Only return the exact text inside the document.";
-
-              if (extension === 'pptx') {
-                mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-              } else if (extension === 'ppt') {
-                mimeType = 'application/vnd.ms-powerpoint';
-              } else if (extension === 'docx') {
-                mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-              } else if (extension === 'doc') {
-                mimeType = 'application/msword';
-              } else if (extension === 'mp4') {
-                mimeType = 'video/mp4';
-                prompt = "Watch this video carefully. Provide a highly detailed transcription of all spoken words and a chronological description of everything happening, including on-screen text, so it can be indexed for retrieval search.";
-              } else if (extension === 'mkv') {
-                mimeType = 'video/x-matroska';
-                prompt = "Watch this video carefully. Provide a highly detailed transcription of all spoken words and a chronological description of everything happening, including on-screen text, so it can be indexed for retrieval search.";
-              } else if (extension === 'webm') {
-                mimeType = 'video/webm';
-                prompt = "Watch this video carefully. Provide a highly detailed transcription of all spoken words and a chronological description of everything happening, including on-screen text, so it can be indexed for retrieval search.";
-              } else if (extension === 'avi') {
-                mimeType = 'video/x-msvideo';
-                prompt = "Watch this video carefully. Provide a highly detailed transcription of all spoken words and a chronological description of everything happening, including on-screen text, so it can be indexed for retrieval search.";
-              } else if (extension === 'mov') {
-                mimeType = 'video/quicktime';
-                prompt = "Watch this video carefully. Provide a highly detailed transcription of all spoken words and a chronological description of everything happening, including on-screen text, so it can be indexed for retrieval search.";
-              } else if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(extension)) {
-                mimeType = extension === 'svg' ? 'image/svg+xml' : `image/${extension}`;
-                prompt = "Inspect this image in deep detail. Transcribe any written text and describe all visual elements, diagrams, schemas, charts, and context carefully so it can be indexed for search retrieval.";
+            } else if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv'].includes(extension)) {
+              console.info(`[Local Document Parser] Extracting .${extension} file: ${title}`);
+              const dataBuffer = Buffer.from(rawBase64, 'base64');
+              const { text: extractedText, supported } = await extractLocalFileText(extension, dataBuffer);
+              if (extractedText && extractedText.trim() !== "") {
+                console.info(`[Local Document Parser] Successfully parsed ${extractedText.length} characters from ${title}`);
+                text = extractedText;
+              } else if (!supported) {
+                text = extractedText || `[Unsupported File Type] The file "${title}" (.${extension}) could not be parsed.`;
               } else {
-                mimeType = 'application/pdf';
+                text = `Document File: "${title}"\n- Format: ${extension.toUpperCase()}\n- Description: File was processed but no extractable text content was found (the file may be empty or image-only).`;
               }
-
-              // Leverage OpenRouter to extract raw textual context!
-              const extRes = await generateContentWithOpenRouter({
-                prompt,
-                mimeType,
-                base64Data: rawBase64
-              });
-              text = extRes.text;
+            } else {
+              text = `[Unsupported File Type] The file "${title}" (.${extension}) is not a supported format. GroundLink AI currently supports: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files.`;
             }
           } catch (err: any) {
-            console.error(`OpenRouter Grounding parser error on ${title}:`, err);
-            
-            const errStr = String(err.message || err).toLowerCase();
-            const isQuotaOrLimit = errStr.includes('quota') || 
-                                   errStr.includes('429') || 
-                                   errStr.includes('rate_limit') || 
-                                   errStr.includes('resource_exhausted') || 
-                                   errStr.includes('limit');
-            
-            if (isQuotaOrLimit) {
-              console.warn(`Graceful quota limit fallback activated for file: ${title}`);
-              text = `[Document Parser Notice] The file "${title}" was successfully loaded but could not be fully analyzed via the OpenRouter API because the system free-tier request quota was exceeded. 
-To increase your request rates, upgrade to a paid tier or configure a custom OpenRouter API key in settings.
-File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
-            } else {
-              console.warn(`Fallback document index created for ${title} due to extraction limit/timeout.`);
-              text = `Document File: "${title}"
+            console.error(`Document parser error on ${title}:`, err);
+            console.warn(`Fallback document index created for ${title} due to extraction error.`);
+            text = `Document File: "${title}"
 - Format: ${extension.toUpperCase()}
 - Description: Custom uploaded file "${title}" added to GroundLink AI Knowledge Base.
-- Content Summary: Registered and indexed for document search, RAG contextual retrieval, and visual verification.`;
-            }
+- Content Summary: Registered and indexed for document search and RAG contextual retrieval. Text extraction encountered an error: ${err.message || 'unknown error'}.`;
           }
         }
 
@@ -1510,14 +1405,14 @@ File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
         let embeddingsList: any[] = [];
 
         try {
-          embeddingsList = await getOpenRouterEmbedding(batch.map(c => c.text));
+          embeddingsList = await getJinaEmbedding(batch.map(c => c.text), 'document');
         } catch (embErr: any) {
-          console.warn("Gemini embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
-          embeddingsList = batch.map(() => new Array(768).fill(0));
+          console.warn("Jina AI embedding calculation failed during upload, using zero-vector fallback:", embErr.message);
+          embeddingsList = batch.map(() => new Array(EMBEDDING_DIMENSIONS).fill(0));
         }
 
         for (let j = 0; j < batch.length; j++) {
-          const embValues = embeddingsList[j] || new Array(768).fill(0);
+          const embValues = embeddingsList[j] || new Array(EMBEDDING_DIMENSIONS).fill(0);
           indexChunks.push({
             id: `chunk-custom-${Date.now()}-${i + j}`,
             docTitle: batch[j].docTitle,
@@ -1582,11 +1477,10 @@ File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
         return res.status(400).json({ error: 'Query parameter is required' });
       }
 
-      if (!process.env.GEMINI_API_KEY && !process.env.GROQ_API_KEY) {
-        return res.status(400).json({ error: 'GEMINI_API_KEY or GROQ_API_KEY is required to query GroundLink.' });
-      }
+      // No hard key requirement - gracefully degrades to local heuristic retrieval/generation
+      // when GROQ_API_KEY / JINA_API_KEY aren't configured.
 
-      // 1. Use ONLY client-sent chunks — server never fetches from Firestore
+      // 1. Use ONLY client-sent chunks - server never fetches from Firestore
       // This prevents stale/mixed data from old uploads bleeding into responses
       let topMatches: any[] = [];
       const userChunks = (req.body.userChunks && Array.isArray(req.body.userChunks))
@@ -1599,8 +1493,8 @@ File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
       const hasImageAttached = image && typeof image === 'string' && image.length > 0;
       if (userChunks.length > 0 && !hasChatAttachedFiles && !hasImageAttached && !isGeneralGreetingOrShort) {
         try {
-          // Embed the query via OpenRouter
-          const embeddingsList = await getOpenRouterEmbedding([query]);
+          // Embed the query via Jina AI (task: 'query' improves retrieval quality)
+          const embeddingsList = await getJinaEmbedding([query], 'query');
           const queryVector = embeddingsList[0];
 
           if (queryVector && queryVector.length > 0) {
@@ -1670,33 +1564,26 @@ File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
         topMatches = deduplicatedMatches;
       }
 
-      // 2. Process chat attached files (documents/media/videos) for direct multi-modal processing
-      const nativeParts: any[] = [];
+      // 2. Process chat attached files locally (no external API) - extracted straight into text context
       const extractedTextBlocks: { name: string; content: string }[] = [];
 
       if (chatAttachedFiles && Array.isArray(chatAttachedFiles)) {
         for (const file of chatAttachedFiles) {
           if (!file.base64) continue;
 
-          let mimeType = '';
           let data = file.base64;
 
           // Clean base64 prefix if present using bulletproof comma split
           if (file.base64.startsWith('data:')) {
             const commaIndex = file.base64.indexOf(',');
             if (commaIndex !== -1) {
-              const prefix = file.base64.substring(0, commaIndex);
               data = file.base64.substring(commaIndex + 1);
-              const mimeMatch = prefix.match(/data:([^;]+);base64/);
-              if (mimeMatch) {
-                mimeType = mimeMatch[1];
-              }
             }
           }
 
           const ext = file.name.split('.').pop()?.toLowerCase() || '';
 
-          // Text-based files
+          // Plain text-based files - decode directly
           if (['txt', 'md', 'csv', 'json', 'xml', 'yaml', 'yml'].includes(ext)) {
             try {
               const decoded = Buffer.from(data, 'base64').toString('utf8');
@@ -1704,36 +1591,62 @@ File Details: File: ${title}, Format: ${extension.toUpperCase()}.`;
             } catch (err) {
               console.error(`Failed to decode text file ${file.name}:`, err);
             }
-          } else {
-            // For binary files, map extension to correct Gemini mimeType
-            if (!mimeType) {
-              if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
-                mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-              } else if (ext === 'pdf') {
-                mimeType = 'application/pdf';
-              } else if (ext === 'docx') {
-                mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-              } else if (ext === 'doc') {
-                mimeType = 'application/msword';
-              } else if (ext === 'pptx') {
-                mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-              } else if (ext === 'ppt') {
-                mimeType = 'application/vnd.ms-powerpoint';
-              } else if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) {
-                mimeType = `video/${ext === 'mov' ? 'quicktime' : ext === 'mkv' ? 'x-matroska' : ext}`;
-              } else {
-                mimeType = 'application/octet-stream';
+            continue;
+          }
+
+          const buffer = Buffer.from(data, 'base64');
+
+          // PDF - dedicated local parser
+          if (ext === 'pdf') {
+            let parserInstance: PDFParse | null = null;
+            try {
+              parserInstance = new PDFParse({ data: new Uint8Array(buffer) });
+              const pdfData = await parserInstance.getText();
+              const pdfText = (pdfData.text || '').trim();
+              extractedTextBlocks.push({
+                name: file.name,
+                content: pdfText || '[No extractable text found in this PDF.]'
+              });
+            } catch (err: any) {
+              console.error(`Failed to parse attached PDF ${file.name}:`, err.message || err);
+              extractedTextBlocks.push({ name: file.name, content: '[Failed to parse this PDF.]' });
+            } finally {
+              if (parserInstance) {
+                try { await parserInstance.destroy(); } catch { /* no-op */ }
               }
             }
-
-            nativeParts.push({
-              inlineData: {
-                mimeType,
-                data
-              }
-            });
+            continue;
           }
+
+          // DOC/DOCX/PPT/PPTX/XLS/XLSX - local parsers, no LLM/vision API
+          if (['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext)) {
+            const { text: extractedText, supported } = await extractLocalFileText(ext, buffer);
+            extractedTextBlocks.push({
+              name: file.name,
+              content: extractedText && extractedText.trim() !== ''
+                ? extractedText
+                : (supported ? '[No extractable text found in this file.]' : `[Unsupported or unreadable .${ext} file.]`)
+            });
+            continue;
+          }
+
+          // Anything else (images, video, unknown binary) - not supported without a vision/video model
+          console.info(`Skipping unsupported chat-attached file type: ${file.name} (.${ext})`);
+          extractedTextBlocks.push({
+            name: file.name,
+            content: `[Unsupported File Type] GroundLink AI currently supports PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, CSV, TXT, and MD files. The file type ".${ext}" cannot be analyzed.`
+          });
         }
+      }
+
+      // Note: image analysis via camera capture is not available - Groq's text models here
+      // don't support vision, and Gemini has been removed. Surface this honestly if attempted.
+      const hasCameraImage = Boolean(image && typeof image === 'string' && image.length > 0);
+      if (hasCameraImage) {
+        extractedTextBlocks.push({
+          name: 'Camera Capture',
+          content: '[Unsupported] Image analysis is not currently available in this deployment.'
+        });
       }
 
       // 3. Construct prompt template with retrieved context & direct attached files
@@ -1763,43 +1676,9 @@ ${citationInstruction}
 - Under NO circumstances include any emojis in your response.
 - Format structured answers using clear numbered lists (1., 2., 3.) or bullet points (-) whenever presenting multiple details, steps, features, or analysis points.
 - Answer the user's question directly, clearly, and concisely in elegant natural language. Do NOT write meta-disclaimers or robotic boilerplate phrases like "Based on the provided documents...", "According to the context...", "Looking at the attached file...", or "I can confirm...". Instead, answer the question as a highly skilled and natural human expert would, letting inline citations like [1] or [2] provide all the reference they need.
-- If directly attached files (such as text files, PDFs, slides, documents, or visual media/videos) are supplied natively or in the text block above, analyze them carefully to answer the question directly. Never claim you cannot read or access them. Do NOT say "Yes, looking at the attached file [filename]". Simply answer the query!
+- If directly attached files (such as text files, PDFs, slides, or documents) are supplied in the text block above, analyze them carefully to answer the question directly. Never claim you cannot read or access them. Do NOT say "Yes, looking at the attached file [filename]". Simply answer the query!
 - If the question is a general query, greeting, or question about how GroundLink works, answer directly and elegantly using your general knowledge, without referencing documents or saying they are missing.
 - Make the answer highly readable, friendly, and structured. Avoid ugly format tags.`;
-
-      const finalParts: any[] = [{ text: promptTemplate }];
-
-      // Add native attached files parts (images, PDFs, videos, docs)
-      for (const part of nativeParts) {
-        finalParts.push(part);
-      }
-
-      // Also support legacy single image if provided in request
-      if (image && typeof image === 'string') {
-        let imageMime = 'image/jpeg';
-        let imageData = image;
-        if (image.startsWith('data:')) {
-          const commaIndex = image.indexOf(',');
-          if (commaIndex !== -1) {
-            const prefix = image.substring(0, commaIndex);
-            imageData = image.substring(commaIndex + 1);
-            const mimeMatch = prefix.match(/data:([^;]+);base64/);
-            if (mimeMatch) {
-              imageMime = mimeMatch[1];
-            }
-          }
-        }
-        // Avoid adding duplicate if already added
-        const isDuplicate = nativeParts.some(p => p.inlineData.data === imageData);
-        if (!isDuplicate) {
-          finalParts.push({
-            inlineData: {
-              mimeType: imageMime,
-              data: imageData
-            }
-          });
-        }
-      }
 
       // 4. Structure conversation contents history for conversational context
       const formattedMessages: any[] = [];
@@ -1817,73 +1696,17 @@ ${citationInstruction}
         });
       }
 
-      // Add the active user message with multi-modal content
-      const userContentParts: any[] = [];
-      
-      // 1. Text part
-      userContentParts.push({
-        type: "text",
-        text: promptTemplate
-      });
-
-      // 2. Image parts (OpenRouter supports standard base64 image_url)
-      if (image && typeof image === 'string') {
-        let imageMime = 'image/jpeg';
-        let imageData = image;
-        if (image.startsWith('data:')) {
-          const commaIndex = image.indexOf(',');
-          if (commaIndex !== -1) {
-            const prefix = image.substring(0, commaIndex);
-            imageData = image.substring(commaIndex + 1);
-            const mimeMatch = prefix.match(/data:([^;]+);base64/);
-            if (mimeMatch) {
-              imageMime = mimeMatch[1];
-            }
-          }
-        }
-        
-        userContentParts.push({
-          type: "image_url",
-          image_url: {
-            url: `data:${imageMime};base64,${imageData}`
-          }
-        });
-      }
-
-      // Also parse from finalParts (images, PDFs, videos, audio, etc.)
-      for (const part of finalParts) {
-        if (part.inlineData) {
-          const { mimeType, data } = part.inlineData;
-          if (mimeType.startsWith('image/')) {
-            const url = `data:${mimeType};base64,${data}`;
-            if (!userContentParts.some(p => p.image_url?.url === url)) {
-              userContentParts.push({
-                type: "image_url",
-                image_url: {
-                  url: url
-                }
-              });
-            }
-          } else {
-            userContentParts.push({
-              inlineData: {
-                mimeType,
-                data
-              }
-            });
-          }
-        }
-      }
-
+      // Add the active user message (text-only - Groq handles text generation here)
       formattedMessages.push({
         role: "user",
-        content: userContentParts.length === 1 ? promptTemplate : userContentParts
+        content: promptTemplate
       });
 
-      let systemInstruction = "You are GroundLink AI, a professional, highly intelligent document assistant. GroundLink is this RAG Document Explorer application that lets users upload custom files and query them with semantic search, citations, and multimodal capabilities. You are NOT a limousine or transport ride service, so if users ask what GroundLink is or how it works, explain that it is this RAG AI document assistant. Under NO circumstances include any emojis in your response. Speak in clean, direct, and conversational natural language. Do NOT use artificial boilerplate phrases like 'Based on the provided documents...', 'According to the context...', 'Looking at the attached file...', or 'I can confirm...'. Simply answer the question directly and elegantly.";
+
+      let systemInstruction = "You are GroundLink AI, a professional, highly intelligent document assistant. GroundLink is this RAG Document Explorer application that lets users upload custom files and query them with semantic search and inline citations. You are NOT a limousine or transport ride service, so if users ask what GroundLink is or how it works, explain that it is this RAG AI document assistant. Under NO circumstances include any emojis in your response. Speak in clean, direct, and conversational natural language. Do NOT use artificial boilerplate phrases like 'Based on the provided documents...', 'According to the context...', 'Looking at the attached file...', or 'I can confirm...'. Simply answer the question directly and elegantly.";
       
       if (topMatches.length > 0) {
-        systemInstruction += " CITATION RULES: Every factual claim must have an inline citation matching the passage it came from. Passage [1] = cite [1], passage [3] = cite [3]. Never use [1] for everything. Never combine as [2, 4] — write separately as [2] [4]. No references list at end. Citations go directly after the sentence, not at end of paragraph.";
+        systemInstruction += " CITATION RULES: Every factual claim must have an inline citation matching the passage it came from. Passage [1] = cite [1], passage [3] = cite [3]. Never use [1] for everything. Never combine as [2, 4] - write separately as [2] [4]. No references list at end. Citations go directly after the sentence, not at end of paragraph.";
       } else {
         systemInstruction += " Since NO files or custom document chunks are retrieved for this query, you MUST NOT use any inline citations (such as [1], [2], etc.) in your answer. Answer directly and cleanly based on your general knowledge or the attached files, with no numbered citations.";
       }
@@ -1891,8 +1714,8 @@ ${citationInstruction}
         systemInstruction += `\n\nAdhere strictly to these user-defined Custom System Instructions:\n"${customSystemInstruction.trim()}"\nIf these custom instructions dictate a specific tone, language (such as Roman Urdu), format, or role, follow it precisely while answering.`;
       }
 
-      // 5. Generate the Response using OpenRouter
-      const { text: answer, modelUsed } = await generateContentWithOpenRouter({
+      // 5. Generate the response using Groq (falls back to local heuristic generator if unavailable)
+      const { text: answer, modelUsed } = await generateAnswer({
         messages: formattedMessages,
         systemInstruction,
         temperature: temperature
