@@ -972,19 +972,35 @@ app.use((req: any, res: any, next: any) => {
   const origin = req.headers.origin;
   const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
   const allowed = ['http://localhost:3000', 'http://localhost:5173', appUrl].filter(Boolean);
-  if (process.env.EXTRA_ORIGINS) allowed.push(...process.env.EXTRA_ORIGINS.split(',').map((o: string) => o.trim()).filter(Boolean));
+  
+  if (process.env.EXTRA_ORIGINS) {
+    allowed.push(...process.env.EXTRA_ORIGINS.split(',').map((o: string) => o.trim()).filter(Boolean));
+  }
+
+  // If origin exists and matches whitelist or Vercel preview/production domains
   if (origin) {
-    const ok = allowed.includes(origin) || origin.endsWith('.vercel.app') || origin.endsWith('.google.com');
-    if (ok) {
+    const isVercel = origin.endsWith('.vercel.app');
+    const isAllowed = allowed.includes(origin) || isVercel;
+
+    if (isAllowed) {
       res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     } else {
+      console.warn(`[SECURITY WARNING - CORS BLOCK] Unauthorized origin request rejected: ${origin}`);
       return res.status(403).json({ error: 'CORS Policy violation.' });
     }
   }
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
+
+  // Handle browser preflight OPTIONS requests immediately
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    return res.sendStatus(200);
+  }
+
   next();
 });
 
